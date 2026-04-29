@@ -724,7 +724,7 @@ function doLogin() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => showPage('dashboard'));
+  carregarDoDB().then(() => { showPage('dashboard'); iniciarSyncAutomatico(); });
 }
 
 function showTrocaSenha(mat) {
@@ -798,6 +798,7 @@ function salvarSenhaModal() {
 }
 
 function doLogout() {
+  pararSyncAutomatico();
   currentUser = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
@@ -2730,6 +2731,82 @@ function removerUsuario(mat) {
   delete USERS[mat];
   salvarUsuarios();
   document.getElementById('main-content').innerHTML = renderUsuarios();
+}
+
+
+
+// ── Sincronização automática a cada 2 minutos ──
+let syncInterval = null;
+
+function iniciarSyncAutomatico() {
+  if (syncInterval) clearInterval(syncInterval);
+  syncInterval = setInterval(async () => {
+    if (API_URL === 'COLE_AQUI_A_URL_DO_SEU_APPS_SCRIPT') return;
+    if (SALVANDO) return; // não sincronizar enquanto estiver salvando
+    try {
+      // Buscar apenas movimentações e vinculações (dados mais dinâmicos)
+      const [resMov, resVinc, resColab] = await Promise.all([
+        fetch(`${API_URL}?aba=movimentacoes&token=${API_TOKEN}`, { redirect: 'follow' }).then(r => r.json()),
+        fetch(`${API_URL}?aba=vinculacoes&token=${API_TOKEN}`,   { redirect: 'follow' }).then(r => r.json()),
+        fetch(`${API_URL}?aba=colaboradores&token=${API_TOKEN}`, { redirect: 'follow' }).then(r => r.json()),
+      ]);
+
+      let atualizado = false;
+
+      // Atualizar movimentações
+      if (resMov.ok && resMov.dados.length > 0) {
+        solicitacoes.length = 0;
+        resMov.dados.forEach(s => solicitacoes.push({
+          id: s.id, data: s.data,
+          solicitante: s.solicitante, solicitanteNome: s.solicitanteNome,
+          tipo: s.tipo, setorAtual: s.setorAtual, setorDestino: s.setorDestino,
+          motivo: s.motivo, status: s.status,
+          aprovGerente: s.aprovGerente === 'true' ? true : s.aprovGerente === 'false' ? false : null,
+          aprovRH: s.aprovRH === 'true' ? true : s.aprovRH === 'false' ? false : null,
+          obs: s.obs || ''
+        }));
+        atualizado = true;
+      }
+
+      // Atualizar vinculações
+      if (resVinc.ok && resVinc.dados.length > 0) {
+        Object.keys(vinculacoes).forEach(k => delete vinculacoes[k]);
+        resVinc.dados.forEach(v => { if (v.funcionario && v.lider) vinculacoes[v.funcionario] = v.lider; });
+        atualizado = true;
+      }
+
+      // Atualizar colaboradores
+      if (resColab.ok && resColab.dados.length > 0) {
+        const matsSalvas = new Set(resColab.dados.map(f => f.matricula));
+        const funcLocais = FUNCIONARIOS.filter(f => !matsSalvas.has(f.matricula));
+        FUNCIONARIOS.length = 0;
+        resColab.dados.forEach(f => FUNCIONARIOS.push(f));
+        funcLocais.forEach(f => FUNCIONARIOS.push(f));
+        atualizado = true;
+      }
+
+      if (atualizado) {
+        // Atualizar notificações silenciosamente
+        updateNotif();
+        // Se estiver em uma página dinâmica, re-renderizar silenciosamente
+        if (currentPage === 'dashboard') {
+          document.getElementById('main-content').innerHTML = renderDashboard();
+        }
+        // Mostrar indicador discreto
+        mostrarStatusDB('🔄 Sincronizado', 'ok');
+      }
+    } catch(err) {
+      // Silencioso — não mostrar erro de sync automático
+      console.log('Sync automático:', err.message);
+    }
+  }, 2 * 60 * 1000); // a cada 2 minutos
+}
+
+function pararSyncAutomatico() {
+  if (syncInterval) {
+    clearInterval(syncInterval);
+    syncInterval = null;
+  }
 }
 
 
