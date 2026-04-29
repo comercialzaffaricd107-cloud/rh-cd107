@@ -823,7 +823,7 @@ function nomeSetor(s) {
     'Centro de Distribuição': 'Centro de Distribuição',
     'Conf.de Loja':       'Conf. de Loja',
   };
-  const base = nomeSetor(s).trim();
+  const base = s.replace(' - CD 74','').replace(' - CD74','').trim();
   return mapa[base] || base;
 }
 
