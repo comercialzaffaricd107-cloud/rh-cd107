@@ -505,7 +505,10 @@ async function carregarDoDB() {
   try {
     const abas = ['colaboradores','usuarios','vinculacoes','movimentacoes','setores'];
     const resultados = await Promise.all(abas.map(aba =>
-      fetch(`${API_URL}?aba=${aba}&token=${API_TOKEN}`).then(r => r.json())
+      fetch(`${API_URL}?aba=${aba}&token=${API_TOKEN}`, {
+        method: 'GET',
+        redirect: 'follow'
+      }).then(r => r.json())
     ));
 
     // Colaboradores
@@ -579,7 +582,8 @@ async function salvarAba(aba, dados) {
     mostrarStatusDB('💾 Salvando…', 'save');
     const resp = await fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: API_TOKEN, aba, dados })
     });
     const json = await resp.json();
