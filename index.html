@@ -606,12 +606,18 @@ async function carregarDoDB() {
 
     // Colaboradores
     if (resultados[0].ok && resultados[0].dados.length > 0) {
-      // Mesclar: manter base local para matrículas não existentes no sheets
+      // Sheets tem dados: usar dados do Sheets como base
       const matsSalvas = new Set(resultados[0].dados.map(f => f.matricula));
-      const funcFiltrados = FUNCIONARIOS.filter(f => !matsSalvas.has(f.matricula));
+      const funcLocaisNovos = FUNCIONARIOS.filter(f => !matsSalvas.has(f.matricula));
       FUNCIONARIOS.length = 0;
       resultados[0].dados.forEach(f => FUNCIONARIOS.push(f));
-      funcFiltrados.forEach(f => FUNCIONARIOS.push(f));
+      funcLocaisNovos.forEach(f => FUNCIONARIOS.push(f));
+    } else if (resultados[0].ok && resultados[0].dados.length === 0) {
+      // Sheets vazio: salvar base local automaticamente (primeira vez)
+      console.log('Sheets vazio — salvando base local automaticamente...');
+      salvarColaboradores();
+      salvarUsuarios();
+      salvarSetores();
     }
 
     // Usuários
@@ -807,11 +813,16 @@ function doLogin() {
 
   currentUser = { matricula: user, role: u.role, nome: u.nome };
 
-  // Primeiro acesso: obrigar troca de senha
-  if (u.primeiroAcesso) {
+  // Primeiro acesso: só pedir troca se senha === matrícula (senha padrão)
+  const senhaEhMatricula = u.senha === user;
+  if (u.primeiroAcesso && senhaEhMatricula) {
     document.getElementById('login-screen').style.display = 'none';
     showTrocaSenha(user);
     return;
+  }
+  // Se senha já foi trocada, marcar como não primeiro acesso
+  if (u.primeiroAcesso && !senhaEhMatricula) {
+    USERS[user].primeiroAcesso = false;
   }
 
   document.getElementById('login-screen').style.display = 'none';
@@ -1706,7 +1717,7 @@ let vinculacoes = {"229747": "230379", "230702": "230379", "231931": "230379", "
 
 // Pode gerenciar: admin ou rh
 function podeGerenciarEquipes() {
-  return ['admin','rh'].includes(currentUser.role);
+  return ['admin','rh','gerente','coordenador'].includes(currentUser.role);
 }
 
 // Lista de líderes ativos
@@ -2929,10 +2940,11 @@ function iniciarSyncAutomatico() {
     if (SALVANDO) return; // não sincronizar enquanto estiver salvando
     try {
       // Buscar apenas movimentações e vinculações (dados mais dinâmicos)
-      const [resMov, resVinc, resColab] = await Promise.all([
+      const [resMov, resVinc, resColab, resUsr] = await Promise.all([
         fetch(`${API_URL}?aba=movimentacoes&token=${API_TOKEN}`, { redirect: 'follow' }).then(r => r.json()),
         fetch(`${API_URL}?aba=vinculacoes&token=${API_TOKEN}`,   { redirect: 'follow' }).then(r => r.json()),
         fetch(`${API_URL}?aba=colaboradores&token=${API_TOKEN}`, { redirect: 'follow' }).then(r => r.json()),
+        fetch(`${API_URL}?aba=usuarios&token=${API_TOKEN}`,      { redirect: 'follow' }).then(r => r.json()),
       ]);
 
       let atualizado = false;
@@ -2966,6 +2978,25 @@ function iniciarSyncAutomatico() {
         FUNCIONARIOS.length = 0;
         resColab.dados.forEach(f => FUNCIONARIOS.push(f));
         funcLocais.forEach(f => FUNCIONARIOS.push(f));
+        atualizado = true;
+      }
+
+      // Atualizar usuários (senhas e permissões)
+      if (resUsr.ok && resUsr.dados.length > 0) {
+        resUsr.dados.forEach(u => {
+          if (u.matricula && u.senha) {
+            // Preservar dados do usuário atual logado para não deslogar
+            if (USERS[u.matricula] && u.matricula === currentUser?.matricula) {
+              USERS[u.matricula].podeGerenciarUsuarios = u.podeGerenciarUsuarios === 'true';
+            } else {
+              USERS[u.matricula] = {
+                senha: u.senha, role: u.role, nome: u.nome,
+                primeiroAcesso: u.primeiroAcesso === 'true' && u.senha === u.matricula,
+                podeGerenciarUsuarios: u.podeGerenciarUsuarios === 'true'
+              };
+            }
+          }
+        });
         atualizado = true;
       }
 
