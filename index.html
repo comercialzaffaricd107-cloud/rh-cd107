@@ -542,6 +542,9 @@
         <div class="nav-item" onclick="showPage('setores')" id="nav-setores">
           <span class="nav-icon">🗂️</span> Setores
         </div>
+        <div class="nav-item" onclick="showPage('cargos')" id="nav-cargos">
+          <span class="nav-icon">💼</span> Cargos
+        </div>
         <div class="nav-item" onclick="showPage('usuarios')" id="nav-usuarios" style="display:none">
           <span class="nav-icon">🔐</span> Usuários
         </div>
@@ -596,7 +599,7 @@ async function carregarDoDB() {
   }
   mostrarStatusDB('⏳ Carregando dados…', 'info');
   try {
-    const abas = ['colaboradores','usuarios','vinculacoes','movimentacoes','setores'];
+    const abas = ['colaboradores','usuarios','vinculacoes','movimentacoes','setores','cargos'];
     const resultados = await Promise.all(abas.map(aba =>
       fetch(`${API_URL}?aba=${aba}&token=${API_TOKEN}`, {
         method: 'GET',
@@ -618,6 +621,7 @@ async function carregarDoDB() {
       salvarColaboradores();
       salvarUsuarios();
       salvarSetores();
+      salvarCargos();
     }
 
     // Usuários
@@ -662,6 +666,15 @@ async function carregarDoDB() {
       if (setoresSalvos.length > 0) {
         SETORES_LISTA.length = 0;
         setoresSalvos.forEach(s => SETORES_LISTA.push(s));
+      }
+    }
+
+    // Cargos
+    if (resultados[5] && resultados[5].ok && resultados[5].dados.length > 0) {
+      const cargosSalvos = resultados[5].dados.map(c => c.cargo).filter(Boolean);
+      if (cargosSalvos.length > 0) {
+        CARGOS_LISTA.length = 0;
+        cargosSalvos.forEach(c => CARGOS_LISTA.push(c));
       }
     }
 
@@ -1581,7 +1594,7 @@ function abrirEdicao(mat) {
       <div class="form-group">
         <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Cargo *</label>
         <select id="ed-cargo" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
-          ${CARGOS_LISTA.map(c => `<option value="${c}" ${f.cargo===c?'selected':''}>${c}</option>`).join('')}
+          ${getCargosLista().map(c => `<option value="${c}" ${f.cargo===c?'selected':''}>${c}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1703,6 +1716,7 @@ window.showPage = function(page) {
   else if (page === 'orggestor') { main.innerHTML = renderOrgGestor(); }
   else if (page === 'cadastro') { main.innerHTML = renderCadastro(); }
   else if (page === 'setores') { main.innerHTML = renderSetores(); }
+  else if (page === 'cargos') { main.innerHTML = renderCargos(); }
   else if (page === 'relatorio') { main.innerHTML = renderRelatorio(); setTimeout(renderRelatorioTabela, 10); }
   else if (page === 'usuarios') { main.innerHTML = podeGerenciarUsuarios() ? renderUsuarios() : '<div class="empty-state"><div class="icon">🔒</div><p>Acesso restrito.</p></div>'; }
   updateNotif();
@@ -2090,7 +2104,7 @@ function confirmarLote() {
 // ═══════════════════════════════════════════════
 //  CADASTRO DE COLABORADOR
 // ═══════════════════════════════════════════════
-const CARGOS_LISTA = [
+let CARGOS_LISTA = [
   'Agente de Prevencao de Riscos','Analista de Logistica','Analista de RH Pl',
   'Aprendiz','Aprendiz Adm','Assistente Administrativo de Logistica',
   'Assistente de Logistica','Assistente de Prevencao de Perdas Jr',
@@ -2105,6 +2119,16 @@ const CARGOS_LISTA = [
   'Supervisor de Prevencao de Riscos','Supervisor de Seg. Alimentar',
   'Tecnico de Automacao','Tecnico de Manutencao'
 ];
+
+function getCargosLista() {
+  // Merge: lista base + cargos usados em FUNCIONARIOS que não estão na lista
+  const usados = [...new Set(FUNCIONARIOS.map(f => f.cargo).filter(Boolean))];
+  return [...new Set([...CARGOS_LISTA, ...usados])].sort();
+}
+
+function salvarCargos() {
+  salvarAba('cargos', CARGOS_LISTA.map(c => ({ cargo: c })));
+}
 let SETORES_LISTA = [
   'Administrativo - CD 74','Automacao - CD 74','Centro de Distribuição - CD 74',
   'Expedicao - CD 74','Gerencia - CD 74','Patrimonial - CD 74','Perdas - CD 74',
@@ -2159,7 +2183,7 @@ function renderCadastro() {
         <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Cargo *</label>
         <select id="cad-cargo" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;outline:none">
           <option value="">Selecionar…</option>
-          ${CARGOS_LISTA.map(c => `<option value="${c}">${c}</option>`).join('')}
+          ${getCargosLista().map(c => `<option value="${c}">${c}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -3022,6 +3046,144 @@ function pararSyncAutomatico() {
     clearInterval(syncInterval);
     syncInterval = null;
   }
+}
+
+
+
+// ═══════════════════════════════════════════════
+//  GESTÃO DE CARGOS
+// ═══════════════════════════════════════════════
+function renderCargos() {
+  const canEdit = ['admin','rh'].includes(currentUser.role);
+  const lista   = getCargosLista();
+
+  // headcount por cargo
+  const hc = {};
+  FUNCIONARIOS.filter(f => ['Ativo','Experiência'].includes(f.status)).forEach(f => {
+    hc[f.cargo] = (hc[f.cargo]||0)+1;
+  });
+
+  return `
+  <div class="page-header">
+    <h2>Gestão de Cargos</h2>
+    <p>${lista.length} cargos cadastrados</p>
+  </div>
+
+  ${canEdit ? `
+  <div style="display:flex;gap:10px;margin-bottom:20px">
+    <button class="btn-new" onclick="abrirModalCargo(null)">+ Novo Cargo</button>
+  </div>` : ''}
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="background:var(--surface2)">
+          <th style="padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2);text-align:left">Cargo</th>
+          <th style="padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2);text-align:center">Colaboradores Ativos</th>
+          ${canEdit ? '<th style="padding:10px 16px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2);text-align:center">Ações</th>' : ''}
+        </tr>
+      </thead>
+      <tbody>
+        ${lista.map(c => `
+        <tr style="border-top:1px solid var(--border)">
+          <td style="padding:11px 16px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:28px;height:28px;border-radius:6px;background:${cargoColor(c).bg};display:flex;align-items:center;justify-content:center;font-size:13px">${cargoColor(c).icon}</div>
+              <span style="font-weight:500;font-size:13px">${c}</span>
+            </div>
+          </td>
+          <td style="padding:11px 16px;text-align:center">
+            <span style="font-family:'DM Mono';font-size:14px;font-weight:700;color:${(hc[c]||0)>0?'var(--green)':'var(--text3)'}">${hc[c]||0}</span>
+          </td>
+          ${canEdit ? `
+          <td style="padding:11px 16px;text-align:center;white-space:nowrap">
+            <span onclick="abrirModalCargo('${c.replace(/'/g,"\'")}')" style="color:var(--yellow);cursor:pointer;font-size:12px;font-weight:600;margin-right:12px">✏️ Editar</span>
+            ${(hc[c]||0)===0 ? `<span onclick="excluirCargo('${c.replace(/'/g,"\'")}')" style="color:var(--red);cursor:pointer;font-size:12px;font-weight:600">🗑️ Excluir</span>` : '<span style="color:var(--text3);font-size:11px">em uso</span>'}
+          </td>` : ''}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function abrirModalCargo(cargoAtual) {
+  const isNovo = !cargoAtual;
+
+  document.getElementById('modal-content').innerHTML = `
+    <h3>${isNovo ? '💼 Novo Cargo' : '✏️ Editar Cargo'}</h3>
+    <div class="modal-sub">${isNovo ? 'Cadastre um novo cargo no sistema.' : `Editando: <strong>${cargoAtual}</strong>`}</div>
+
+    <div class="form-group" style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px">Nome do Cargo *</label>
+      <input type="text" id="mc-nome" value="${cargoAtual||''}"
+        placeholder="Ex: Analista de Logistica Senior"
+        style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:14px;outline:none">
+    </div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text2)">
+      💡 O ícone e a cor são definidos automaticamente com base no nome do cargo (Gerente, Coordenador, Lider, Supervisor, etc.)
+    </div>
+
+    <div id="mc-error" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-bottom:12px"></div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn-success" onclick="salvarCargo('${cargoAtual ? cargoAtual.replace(/'/g,"\'") : ''}')">
+        ${isNovo ? 'Criar Cargo' : 'Salvar Alterações'}
+      </button>
+    </div>`;
+
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function salvarCargo(cargoAntigo) {
+  const nome  = document.getElementById('mc-nome').value.trim();
+  const errEl = document.getElementById('mc-error');
+  errEl.style.display = 'none';
+
+  if (!nome) { errEl.textContent = 'Informe o nome do cargo.'; errEl.style.display='block'; return; }
+
+  const isNovo = !cargoAntigo;
+
+  if (isNovo) {
+    if (CARGOS_LISTA.includes(nome)) {
+      errEl.textContent = 'Cargo já existe.'; errEl.style.display='block'; return;
+    }
+    CARGOS_LISTA.push(nome);
+    CARGOS_LISTA.sort();
+  } else {
+    // Renomear em CARGOS_LISTA
+    const idx = CARGOS_LISTA.indexOf(cargoAntigo);
+    if (idx >= 0) CARGOS_LISTA[idx] = nome;
+    else CARGOS_LISTA.push(nome);
+    CARGOS_LISTA.sort();
+
+    // Atualizar colaboradores que usam o cargo antigo
+    let count = 0;
+    FUNCIONARIOS.forEach(f => {
+      if (f.cargo === cargoAntigo) { f.cargo = nome; count++; }
+    });
+    if (count > 0) salvarColaboradores();
+    console.log(`Cargo renomeado: ${cargoAntigo} → ${nome} (${count} colaboradores)`);
+  }
+
+  salvarCargos();
+  closeModal();
+  document.getElementById('main-content').innerHTML = renderCargos();
+
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#10b981;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+  toast.textContent = isNovo ? `✅ Cargo "${nome}" criado!` : `✅ Cargo atualizado para "${nome}"!`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+function excluirCargo(cargo) {
+  if (!confirm(`Excluir o cargo "${cargo}"?\nEle não possui colaboradores ativos.`)) return;
+  const idx = CARGOS_LISTA.indexOf(cargo);
+  if (idx >= 0) CARGOS_LISTA.splice(idx, 1);
+  salvarCargos();
+  document.getElementById('main-content').innerHTML = renderCargos();
 }
 
 
