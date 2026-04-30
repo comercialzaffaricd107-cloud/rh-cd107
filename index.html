@@ -629,20 +629,25 @@ async function carregarDoDB() {
       await salvarCargos();
     }
 
-    // Usuários
+    // Usuários — Firebase tem prioridade sobre dados locais
     const snapUsr = await db.collection('usuarios').get();
     if (!snapUsr.empty) {
       snapUsr.docs.forEach(d => {
         const u = d.data();
         if (u.matricula) {
+          // Firebase tem prioridade: sobrescreve USERS local completamente
           USERS[u.matricula] = {
-            senha: u.senha, role: u.role, nome: u.nome,
-            primeiroAcesso: u.primeiroAcesso === true && u.senha === u.matricula,
+            senha: u.senha,
+            role: u.role,
+            nome: u.nome,
+            // primeiroAcesso só é true se senha ainda é a matrícula
+            primeiroAcesso: u.senha === u.matricula,
             podeGerenciarUsuarios: u.podeGerenciarUsuarios === true
           };
         }
       });
     } else {
+      // Firebase vazio: salvar todos os usuários locais
       await salvarUsuarios();
     }
 
@@ -691,8 +696,11 @@ async function carregarDoDB() {
 
   } catch(err) {
     DB_PRONTO = false;
-    mostrarStatusDB('⚠️ Modo offline','err');
-    console.warn('Erro Firebase:', err);
+    const msgErr = err.code === 'permission-denied'
+      ? '🔒 Sem permissão — ajuste as regras do Firestore'
+      : '⚠️ Modo offline — ' + (err.message||'');
+    mostrarStatusDB(msgErr,'err');
+    console.warn('Erro Firebase:', err.code, err.message);
   }
 }
 
@@ -732,6 +740,23 @@ function iniciarListenersTempoReal() {
     if (currentPage === 'orggestor') document.getElementById('main-content').innerHTML = renderOrgGestor();
   });
   _listeners.push(unsubVinc);
+
+  // Usuários em tempo real — atualiza senhas e permissões sem recarregar
+  const unsubUsr = db.collection('usuarios').onSnapshot(snap => {
+    snap.docs.forEach(d => {
+      const u = d.data();
+      if (u.matricula && u.matricula !== currentUser?.matricula) {
+        // Atualizar outros usuários mas não o usuário logado atualmente
+        USERS[u.matricula] = {
+          senha: u.senha, role: u.role, nome: u.nome,
+          primeiroAcesso: u.senha === u.matricula,
+          podeGerenciarUsuarios: u.podeGerenciarUsuarios === true
+        };
+      }
+    });
+    if (currentPage === 'usuarios') document.getElementById('main-content').innerHTML = renderUsuarios();
+  });
+  _listeners.push(unsubUsr);
 
   // Colaboradores em tempo real
   const unsubColab = db.collection('colaboradores').onSnapshot(snap => {
@@ -953,7 +978,15 @@ function confirmarTrocaSenha() {
   // salvar nova senha
   USERS[currentUser.matricula].senha = nova;
   USERS[currentUser.matricula].primeiroAcesso = false;
-  salvarUsuarios();
+  // Salvar imediatamente no Firebase este usuário específico
+  db.collection('usuarios').doc(currentUser.matricula).set({
+    matricula: currentUser.matricula,
+    senha: nova,
+    role: USERS[currentUser.matricula].role,
+    nome: USERS[currentUser.matricula].nome,
+    primeiroAcesso: false,
+    podeGerenciarUsuarios: USERS[currentUser.matricula].podeGerenciarUsuarios || false
+  }).catch(err => console.error('Erro ao salvar senha:', err));
   document.getElementById('troca-senha-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
@@ -1000,7 +1033,15 @@ function salvarSenhaModal() {
   if (nova !== conf) { err.textContent = 'As senhas não conferem.'; err.style.display = 'block'; return; }
   USERS[currentUser.matricula].senha = nova;
   USERS[currentUser.matricula].primeiroAcesso = false;
-  salvarUsuarios();
+  // Salvar imediatamente no Firebase
+  db.collection('usuarios').doc(currentUser.matricula).set({
+    matricula: currentUser.matricula,
+    senha: nova,
+    role: USERS[currentUser.matricula].role,
+    nome: USERS[currentUser.matricula].nome,
+    primeiroAcesso: false,
+    podeGerenciarUsuarios: USERS[currentUser.matricula].podeGerenciarUsuarios || false
+  }).catch(err => console.error('Erro ao salvar senha:', err));
   closeModal();
   alert('✅ Senha alterada com sucesso!');
 }
