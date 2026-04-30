@@ -930,11 +930,36 @@ let colabPage = 1;
 let solTab = 'todas';
 
 // ── LOGIN ──
-function doLogin() {
+async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value.trim();
   const err  = document.getElementById('login-error');
   err.style.display = 'none';
+
+  // Mostrar loading
+  const btn = document.querySelector('#login-screen .btn-primary');
+  if (btn) { btn.textContent = 'Verificando…'; btn.disabled = true; }
+
+  try {
+    // ── Sempre buscar dados do Firebase ANTES de validar login ──
+    const snapUsr = await db.collection('usuarios').doc(user).get();
+    if (snapUsr.exists) {
+      const u = snapUsr.data();
+      // Firebase tem prioridade total sobre dados locais
+      USERS[user] = {
+        senha: u.senha,
+        role: u.role,
+        nome: u.nome,
+        primeiroAcesso: u.senha === user, // só true se senha ainda é a matrícula
+        podeGerenciarUsuarios: u.podeGerenciarUsuarios === true
+      };
+    }
+  } catch(err2) {
+    console.warn('Não foi possível buscar usuário no Firebase:', err2.message);
+    // Continua com dados locais se Firebase falhar
+  }
+
+  if (btn) { btn.textContent = 'Entrar'; btn.disabled = false; }
 
   const u = USERS[user];
   if (!u) { err.style.display = 'block'; return; }
@@ -942,16 +967,11 @@ function doLogin() {
 
   currentUser = { matricula: user, role: u.role, nome: u.nome };
 
-  // Primeiro acesso: só pedir troca se senha === matrícula (senha padrão)
-  const senhaEhMatricula = u.senha === user;
-  if (u.primeiroAcesso && senhaEhMatricula) {
+  // Primeiro acesso: só pedir troca se senha === matrícula
+  if (u.primeiroAcesso) {
     document.getElementById('login-screen').style.display = 'none';
     showTrocaSenha(user);
     return;
-  }
-  // Se senha já foi trocada, marcar como não primeiro acesso
-  if (u.primeiroAcesso && !senhaEhMatricula) {
-    USERS[user].primeiroAcesso = false;
   }
 
   document.getElementById('login-screen').style.display = 'none';
