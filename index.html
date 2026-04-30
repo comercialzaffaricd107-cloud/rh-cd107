@@ -438,6 +438,11 @@
   }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 </head>
 <body>
 
@@ -569,176 +574,257 @@
 
 <script>
 
-// ═══════════════════════════════════════════════════════
-//  SINCRONIZAÇÃO COM GOOGLE SHEETS
-//  Substitua a URL abaixo pela URL do seu Apps Script
-// ═══════════════════════════════════════════════════════
-const API_URL   = 'https://script.google.com/macros/s/AKfycbz6nUKcbTN3xUqA3r0FTgJSVe-8QgZZKDTITNFev3P2VqJs4IpA_j1fg9pFG1uRj0pioQ/exec';
-const API_TOKEN = 'CD107_RH_2025_ZAFFARI';
-let   DB_PRONTO = false;
-let   SALVANDO  = false;
 
-// ── Indicador visual de status de conexão ──
+// ═══════════════════════════════════════════════════════
+//  FIREBASE FIRESTORE — BANCO DE DADOS EM TEMPO REAL
+// ═══════════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey:            "AIzaSyBLhN35RjAS_44FLwRNS6GIbddF3jv94js",
+  authDomain:        "rh-cd-107.firebaseapp.com",
+  projectId:         "rh-cd-107",
+  storageBucket:     "rh-cd-107.firebasestorage.app",
+  messagingSenderId: "844998522403",
+  appId:             "1:844998522403:web:d1ee49ca3b5276089fe396"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let DB_PRONTO  = false;
+let SALVANDO   = false;
+let _listeners = []; // para cancelar listeners ao fazer logout
+
 function mostrarStatusDB(msg, cor) {
   let el = document.getElementById('db-status');
   if (!el) {
     el = document.createElement('div');
     el.id = 'db-status';
-    el.style.cssText = 'position:fixed;bottom:16px;right:16px;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;transition:all .3s;backdrop-filter:blur(4px)';
+    el.style.cssText = 'position:fixed;bottom:70px;right:16px;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;transition:all .3s';
     document.body.appendChild(el);
   }
-  el.style.background = cor === 'ok' ? 'rgba(16,185,129,.9)' :
-                         cor === 'err' ? 'rgba(239,68,68,.9)' :
-                         cor === 'save' ? 'rgba(59,130,246,.9)' : 'rgba(100,116,139,.7)';
+  el.style.background = cor==='ok'?'rgba(16,185,129,.9)':cor==='err'?'rgba(239,68,68,.9)':cor==='save'?'rgba(59,130,246,.9)':'rgba(100,116,139,.7)';
   el.style.color = '#fff';
+  el.style.opacity = '1';
   el.textContent = msg;
-  if (cor === 'ok' || cor === 'save') setTimeout(() => { if(el) el.style.opacity='0.4'; }, 3000);
+  if (cor==='ok'||cor==='save') setTimeout(()=>{ if(el) el.style.opacity='0.3'; }, 3000);
 }
 
-// ── Carregar todos os dados do Google Sheets ──
+// ── Carregar todos os dados do Firestore ──
 async function carregarDoDB() {
-  if (API_URL === 'COLE_AQUI_A_URL_DO_SEU_APPS_SCRIPT') {
-    DB_PRONTO = false;
-    return; // modo offline — sem URL configurada
-  }
-  mostrarStatusDB('⏳ Carregando dados…', 'info');
+  mostrarStatusDB('⏳ Conectando ao Firebase…','info');
   try {
-    const abas = ['colaboradores','usuarios','vinculacoes','movimentacoes','setores','cargos'];
-    const resultados = await Promise.all(abas.map(aba =>
-      fetch(`${API_URL}?aba=${aba}&token=${API_TOKEN}`, {
-        method: 'GET',
-        redirect: 'follow'
-      }).then(r => r.json())
-    ));
-
     // Colaboradores
-    if (resultados[0].ok && resultados[0].dados.length > 0) {
-      // Sheets tem dados: usar dados do Sheets como base
-      const matsSalvas = new Set(resultados[0].dados.map(f => f.matricula));
-      const funcLocaisNovos = FUNCIONARIOS.filter(f => !matsSalvas.has(f.matricula));
+    const snapColab = await db.collection('colaboradores').get();
+    if (!snapColab.empty) {
+      const dados = snapColab.docs.map(d => d.data());
+      const matsSalvas = new Set(dados.map(f => f.matricula));
+      const locaisNovos = FUNCIONARIOS.filter(f => !matsSalvas.has(f.matricula));
       FUNCIONARIOS.length = 0;
-      resultados[0].dados.forEach(f => FUNCIONARIOS.push(f));
-      funcLocaisNovos.forEach(f => FUNCIONARIOS.push(f));
-    } else if (resultados[0].ok && resultados[0].dados.length === 0) {
-      // Sheets vazio: salvar base local automaticamente (primeira vez)
-      console.log('Sheets vazio — salvando base local automaticamente...');
-      salvarColaboradores();
-      salvarUsuarios();
-      salvarSetores();
-      salvarCargos();
+      dados.forEach(f => FUNCIONARIOS.push(f));
+      locaisNovos.forEach(f => FUNCIONARIOS.push(f));
+    } else {
+      // Primeira vez: salvar base local
+      await salvarColaboradores();
+      await salvarSetores();
+      await salvarCargos();
     }
 
     // Usuários
-    if (resultados[1].ok && resultados[1].dados.length > 0) {
-      resultados[1].dados.forEach(u => {
-        if (u.matricula && u.senha && u.role && u.nome) {
+    const snapUsr = await db.collection('usuarios').get();
+    if (!snapUsr.empty) {
+      snapUsr.docs.forEach(d => {
+        const u = d.data();
+        if (u.matricula) {
           USERS[u.matricula] = {
-            senha: u.senha,
-            role: u.role,
-            nome: u.nome,
-            primeiroAcesso: u.primeiroAcesso === 'true',
-            podeGerenciarUsuarios: u.podeGerenciarUsuarios === 'true'
+            senha: u.senha, role: u.role, nome: u.nome,
+            primeiroAcesso: u.primeiroAcesso === true && u.senha === u.matricula,
+            podeGerenciarUsuarios: u.podeGerenciarUsuarios === true
           };
         }
       });
+    } else {
+      await salvarUsuarios();
     }
 
     // Vinculações
-    if (resultados[2].ok && resultados[2].dados.length > 0) {
-      resultados[2].dados.forEach(v => {
+    const snapVinc = await db.collection('vinculacoes').get();
+    if (!snapVinc.empty) {
+      snapVinc.docs.forEach(d => {
+        const v = d.data();
         if (v.funcionario && v.lider) vinculacoes[v.funcionario] = v.lider;
       });
     }
 
     // Movimentações
-    if (resultados[3].ok && resultados[3].dados.length > 0) {
+    const snapMov = await db.collection('movimentacoes').get();
+    if (!snapMov.empty) {
       solicitacoes.length = 0;
-      resultados[3].dados.forEach(s => solicitacoes.push({
+      snapMov.docs.forEach(d => {
+        const s = d.data();
+        solicitacoes.push({
+          id: s.id, data: s.data,
+          solicitante: s.solicitante, solicitanteNome: s.solicitanteNome,
+          tipo: s.tipo, setorAtual: s.setorAtual, setorDestino: s.setorDestino,
+          motivo: s.motivo, status: s.status,
+          aprovGerente: s.aprovGerente, aprovRH: s.aprovRH, obs: s.obs||''
+        });
+      });
+    }
+
+    // Setores
+    const snapSet = await db.collection('setores').doc('lista').get();
+    if (snapSet.exists && snapSet.data().lista?.length > 0) {
+      SETORES_LISTA.length = 0;
+      snapSet.data().lista.forEach(s => SETORES_LISTA.push(s));
+    }
+
+    // Cargos
+    const snapCar = await db.collection('cargos').doc('lista').get();
+    if (snapCar.exists && snapCar.data().lista?.length > 0) {
+      CARGOS_LISTA.length = 0;
+      snapCar.data().lista.forEach(c => CARGOS_LISTA.push(c));
+    }
+
+    DB_PRONTO = true;
+    mostrarStatusDB('✅ Conectado ao Firebase','ok');
+    iniciarListenersTempoReal();
+
+  } catch(err) {
+    DB_PRONTO = false;
+    mostrarStatusDB('⚠️ Modo offline','err');
+    console.warn('Erro Firebase:', err);
+  }
+}
+
+// ── Listeners em tempo real (atualiza sem recarregar) ──
+function iniciarListenersTempoReal() {
+  // Cancelar listeners anteriores
+  _listeners.forEach(u => u());
+  _listeners = [];
+
+  // Movimentações em tempo real
+  const unsubMov = db.collection('movimentacoes').onSnapshot(snap => {
+    solicitacoes.length = 0;
+    snap.docs.forEach(d => {
+      const s = d.data();
+      solicitacoes.push({
         id: s.id, data: s.data,
         solicitante: s.solicitante, solicitanteNome: s.solicitanteNome,
         tipo: s.tipo, setorAtual: s.setorAtual, setorDestino: s.setorDestino,
         motivo: s.motivo, status: s.status,
-        aprovGerente: s.aprovGerente === 'true' ? true : s.aprovGerente === 'false' ? false : null,
-        aprovRH: s.aprovRH === 'true' ? true : s.aprovRH === 'false' ? false : null,
-        obs: s.obs || ''
-      }));
-    }
-
-    // Setores
-    if (resultados[4].ok && resultados[4].dados.length > 0) {
-      const setoresSalvos = resultados[4].dados.map(s => s.setor).filter(Boolean);
-      if (setoresSalvos.length > 0) {
-        SETORES_LISTA.length = 0;
-        setoresSalvos.forEach(s => SETORES_LISTA.push(s));
-      }
-    }
-
-    // Cargos
-    if (resultados[5] && resultados[5].ok && resultados[5].dados.length > 0) {
-      const cargosSalvos = resultados[5].dados.map(c => c.cargo).filter(Boolean);
-      if (cargosSalvos.length > 0) {
-        CARGOS_LISTA.length = 0;
-        cargosSalvos.forEach(c => CARGOS_LISTA.push(c));
-      }
-    }
-
-    DB_PRONTO = true;
-    mostrarStatusDB('✅ Dados sincronizados', 'ok');
-  } catch(err) {
-    DB_PRONTO = false;
-    mostrarStatusDB('⚠️ Modo offline', 'err');
-    console.warn('Erro ao carregar do Sheets:', err);
-  }
-}
-
-// ── Salvar uma aba específica ──
-async function salvarAba(aba, dados) {
-  if (API_URL === 'COLE_AQUI_A_URL_DO_SEU_APPS_SCRIPT') return;
-  try {
-    mostrarStatusDB('💾 Salvando…', 'save');
-    const resp = await fetch(API_URL, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token: API_TOKEN, aba, dados })
+        aprovGerente: s.aprovGerente, aprovRH: s.aprovRH, obs: s.obs||''
+      });
     });
-    const json = await resp.json();
-    if (json.ok) mostrarStatusDB('✅ Salvo', 'ok');
-    else mostrarStatusDB('❌ Erro ao salvar', 'err');
-  } catch(err) {
-    mostrarStatusDB('❌ Falha na conexão', 'err');
-    console.error('Erro ao salvar:', err);
-  }
+    updateNotif();
+    if (currentPage === 'movimentacoes') document.getElementById('main-content').innerHTML = renderMovimentacoes();
+    if (currentPage === 'dashboard') document.getElementById('main-content').innerHTML = renderDashboard();
+  });
+  _listeners.push(unsubMov);
+
+  // Vinculações em tempo real
+  const unsubVinc = db.collection('vinculacoes').onSnapshot(snap => {
+    Object.keys(vinculacoes).forEach(k => delete vinculacoes[k]);
+    snap.docs.forEach(d => {
+      const v = d.data();
+      if (v.funcionario && v.lider) vinculacoes[v.funcionario] = v.lider;
+    });
+    if (currentPage === 'equipes') document.getElementById('main-content').innerHTML = renderEquipes();
+    if (currentPage === 'orggestor') document.getElementById('main-content').innerHTML = renderOrgGestor();
+  });
+  _listeners.push(unsubVinc);
+
+  // Colaboradores em tempo real
+  const unsubColab = db.collection('colaboradores').onSnapshot(snap => {
+    const dados = snap.docs.map(d => d.data());
+    const matsSalvas = new Set(dados.map(f => f.matricula));
+    const locaisNovos = FUNCIONARIOS.filter(f => !matsSalvas.has(f.matricula));
+    FUNCIONARIOS.length = 0;
+    dados.forEach(f => FUNCIONARIOS.push(f));
+    locaisNovos.forEach(f => FUNCIONARIOS.push(f));
+    if (currentPage === 'dashboard') document.getElementById('main-content').innerHTML = renderDashboard();
+    if (currentPage === 'colaboradores') renderColabTable();
+  });
+  _listeners.push(unsubColab);
 }
 
-// ── Helpers de salvamento por tipo ──
-function salvarColaboradores() {
-  salvarAba('colaboradores', FUNCIONARIOS);
+function pararListeners() {
+  _listeners.forEach(u => u());
+  _listeners = [];
 }
-function salvarUsuarios() {
-  const lista = Object.entries(USERS).map(([mat, u]) => ({
-    matricula: mat, senha: u.senha, role: u.role, nome: u.nome,
-    primeiroAcesso: String(u.primeiroAcesso || false),
-    podeGerenciarUsuarios: String(u.podeGerenciarUsuarios || false)
-  }));
-  salvarAba('usuarios', lista);
+
+// ── Funções de salvamento no Firestore ──
+async function salvarColaboradores() {
+  mostrarStatusDB('💾 Salvando…','save');
+  try {
+    const batch = db.batch();
+    FUNCIONARIOS.forEach(f => {
+      if (!f.matricula) return;
+      const ref = db.collection('colaboradores').doc(f.matricula);
+      batch.set(ref, f);
+    });
+    await batch.commit();
+    mostrarStatusDB('✅ Salvo','ok');
+  } catch(err) { mostrarStatusDB('❌ Erro ao salvar','err'); console.error(err); }
 }
-function salvarVinculacoes() {
-  const lista = Object.entries(vinculacoes).map(([funcionario, lider]) => ({ funcionario, lider }));
-  salvarAba('vinculacoes', lista);
+
+async function salvarUsuarios() {
+  try {
+    const batch = db.batch();
+    Object.entries(USERS).forEach(([mat, u]) => {
+      const ref = db.collection('usuarios').doc(mat);
+      batch.set(ref, { matricula: mat, ...u });
+    });
+    await batch.commit();
+    mostrarStatusDB('✅ Salvo','ok');
+  } catch(err) { mostrarStatusDB('❌ Erro ao salvar','err'); console.error(err); }
 }
-function salvarMovimentacoes() {
-  const lista = solicitacoes.map(s => ({
-    id: s.id, data: s.data, solicitante: s.solicitante, solicitanteNome: s.solicitanteNome,
-    tipo: s.tipo, setorAtual: s.setorAtual, setorDestino: s.setorDestino,
-    motivo: s.motivo, status: s.status,
-    aprovGerente: String(s.aprovGerente), aprovRH: String(s.aprovRH), obs: s.obs || ''
-  }));
-  salvarAba('movimentacoes', lista);
+
+async function salvarVinculacoes() {
+  try {
+    const batch = db.batch();
+    // Apagar todas e reescrever
+    const snap = await db.collection('vinculacoes').get();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    Object.entries(vinculacoes).forEach(([func, lider]) => {
+      const ref = db.collection('vinculacoes').doc(func);
+      batch.set(ref, { funcionario: func, lider });
+    });
+    await batch.commit();
+    mostrarStatusDB('✅ Salvo','ok');
+  } catch(err) { mostrarStatusDB('❌ Erro ao salvar','err'); console.error(err); }
 }
-function salvarSetores() {
-  salvarAba('setores', SETORES_LISTA.map(s => ({ setor: s })));
+
+async function salvarMovimentacoes() {
+  try {
+    const batch = db.batch();
+    solicitacoes.forEach(s => {
+      const ref = db.collection('movimentacoes').doc(s.id);
+      batch.set(ref, s);
+    });
+    await batch.commit();
+    mostrarStatusDB('✅ Salvo','ok');
+  } catch(err) { mostrarStatusDB('❌ Erro ao salvar','err'); console.error(err); }
 }
+
+async function salvarSetores() {
+  try {
+    await db.collection('setores').doc('lista').set({ lista: SETORES_LISTA });
+    mostrarStatusDB('✅ Salvo','ok');
+  } catch(err) { mostrarStatusDB('❌ Erro ao salvar','err'); console.error(err); }
+}
+
+async function salvarCargos() {
+  try {
+    await db.collection('cargos').doc('lista').set({ lista: CARGOS_LISTA });
+    mostrarStatusDB('✅ Salvo','ok');
+  } catch(err) { mostrarStatusDB('❌ Erro ao salvar','err'); console.error(err); }
+}
+
+async function salvarAba() { /* compatibilidade — não usado com Firebase */ }
+
+// Sync automático não necessário — Firebase usa listeners em tempo real
+function iniciarSyncAutomatico() {}
+function pararSyncAutomatico() { pararListeners(); }
 
 
 // ═══════════════════════════════════════════════
