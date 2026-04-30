@@ -437,6 +437,7 @@
     .login-card { padding: 32px 20px; margin: 16px; }
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -538,6 +539,9 @@
         </div>
         <div class="nav-item" onclick="showPage('cadastro')" id="nav-cadastro">
           <span class="nav-icon">➕</span> Cadastrar
+        </div>
+        <div class="nav-item" onclick="showPage('importar')" id="nav-importar">
+          <span class="nav-icon">📥</span> Importar
         </div>
         <div class="nav-item" onclick="showPage('setores')" id="nav-setores">
           <span class="nav-icon">🗂️</span> Setores
@@ -1715,6 +1719,7 @@ window.showPage = function(page) {
   else if (page === 'equipes') { main.innerHTML = renderEquipes(); }
   else if (page === 'orggestor') { main.innerHTML = renderOrgGestor(); }
   else if (page === 'cadastro') { main.innerHTML = renderCadastro(); }
+  else if (page === 'importar') { main.innerHTML = renderImportar(); }
   else if (page === 'setores') { main.innerHTML = renderSetores(); }
   else if (page === 'cargos') { main.innerHTML = renderCargos(); }
   else if (page === 'relatorio') { main.innerHTML = renderRelatorio(); setTimeout(renderRelatorioTabela, 10); }
@@ -3186,6 +3191,294 @@ function excluirCargo(cargo) {
   document.getElementById('main-content').innerHTML = renderCargos();
 }
 
+
+
+// ═══════════════════════════════════════════════
+//  IMPORTAÇÃO DE EXCEL
+// ═══════════════════════════════════════════════
+let importResultado = null;
+
+function renderImportar() {
+  const canEdit = ['admin','rh'].includes(currentUser.role);
+  if (!canEdit) return `<div class="empty-state"><div class="icon">🔒</div><p>Acesso restrito ao RH e Administrador.</p></div>`;
+
+  return `
+  <div class="page-header">
+    <h2>📥 Importar Excel</h2>
+    <p>Suba sua planilha de RH para atualizar ou adicionar colaboradores</p>
+  </div>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:20px">
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px">📋 Formato esperado da planilha</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px;line-height:1.8">
+      A planilha deve ter cabeçalho na <strong>primeira linha</strong> com as colunas:<br>
+      <code style="background:var(--bg);padding:2px 8px;border-radius:4px;color:var(--accent2)">Matrícula</code>
+      <code style="background:var(--bg);padding:2px 8px;border-radius:4px;color:var(--accent2)">Nome</code>
+      <code style="background:var(--bg);padding:2px 8px;border-radius:4px;color:var(--accent2)">Cargo</code>
+      <code style="background:var(--bg);padding:2px 8px;border-radius:4px;color:var(--accent2)">Setor</code>
+      <code style="background:var(--bg);padding:2px 8px;border-radius:4px;color:var(--accent2)">Turno</code>
+      <code style="background:var(--bg);padding:2px 8px;border-radius:4px;color:var(--accent2)">Status</code><br>
+      Colunas extras são ignoradas. A ordem não importa.
+    </div>
+
+    <!-- Área de upload -->
+    <div id="imp-dropzone"
+      onclick="document.getElementById('imp-file').click()"
+      ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+      ondragleave="this.style.borderColor='var(--border)'"
+      ondrop="impOnDrop(event)"
+      style="border:2px dashed var(--border);border-radius:10px;padding:40px 20px;text-align:center;cursor:pointer;transition:all .2s">
+      <div style="font-size:36px;margin-bottom:10px">📂</div>
+      <div style="font-size:14px;font-weight:600;color:var(--text)">Clique para selecionar ou arraste o arquivo aqui</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">Formatos aceitos: .xlsx, .xls, .csv</div>
+    </div>
+    <input type="file" id="imp-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="impProcessarArquivo(this.files[0])">
+
+    <div id="imp-loading" style="display:none;text-align:center;padding:20px;color:var(--text2);font-size:13px">
+      ⏳ Processando arquivo…
+    </div>
+  </div>
+
+  <div id="imp-resultado"></div>`;
+}
+
+function impOnDrop(e) {
+  e.preventDefault();
+  document.getElementById('imp-dropzone').style.borderColor = 'var(--border)';
+  const file = e.dataTransfer.files[0];
+  if (file) impProcessarArquivo(file);
+}
+
+function impProcessarArquivo(file) {
+  if (!file) return;
+  document.getElementById('imp-loading').style.display = 'block';
+  document.getElementById('imp-resultado').innerHTML = '';
+
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (ext === 'csv') {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const linhas = e.target.result.split('\n').map(l => l.split(';').map(c => c.replace(/"/g,'').trim()));
+      impAnalisarDados(linhas);
+    };
+    reader.readAsText(file, 'latin1');
+  } else {
+    // XLSX usando SheetJS via CDN
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data  = new Uint8Array(e.target.result);
+        const wb    = XLSX.read(data, { type: 'array' });
+        const ws    = wb.Sheets[wb.SheetNames[0]];
+        const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        impAnalisarDados(linhas);
+      } catch(err) {
+        document.getElementById('imp-loading').style.display = 'none';
+        document.getElementById('imp-resultado').innerHTML =
+          `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px;color:#fca5a5">❌ Erro ao ler arquivo: ${err.message}</div>`;
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function impAnalisarDados(linhas) {
+  document.getElementById('imp-loading').style.display = 'none';
+
+  if (linhas.length < 2) {
+    document.getElementById('imp-resultado').innerHTML =
+      `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px;color:#fca5a5">❌ Planilha vazia ou sem dados.</div>`;
+    return;
+  }
+
+  // Mapear cabeçalhos (case insensitive)
+  const headers = linhas[0].map(h => String(h).toLowerCase().trim());
+  const col = nome => {
+    const variantes = {
+      matricula: ['matricula','matrícula','mat','codigo','código'],
+      nome:      ['nome','name','colaborador','funcionario','funcionário'],
+      cargo:     ['cargo','função','funcao','position'],
+      setor:     ['setor','departamento','area','área','seção','secao'],
+      turno:     ['turno','shift','turno trabalho'],
+      status:    ['status','situacao','situação','ativo']
+    };
+    for (const v of (variantes[nome]||[nome])) {
+      const idx = headers.findIndex(h => h.includes(v));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+
+  const iMat    = col('matricula');
+  const iNome   = col('nome');
+  const iCargo  = col('cargo');
+  const iSetor  = col('setor');
+  const iTurno  = col('turno');
+  const iStatus = col('status');
+
+  if (iMat < 0 || iNome < 0) {
+    document.getElementById('imp-resultado').innerHTML =
+      `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:16px;color:#fca5a5">
+        ❌ Não encontrei as colunas <strong>Matrícula</strong> e <strong>Nome</strong> na planilha.<br>
+        Cabeçalhos encontrados: <em>${linhas[0].join(', ')}</em>
+      </div>`;
+    return;
+  }
+
+  // Processar linhas
+  const novos    = [];
+  const atualizados = [];
+  const semAlteracao = [];
+  const invalidos = [];
+
+  const turnoMap = {'A':'1','B':'2','B-C':'3','C':'3','D':'4'};
+
+  linhas.slice(1).forEach(row => {
+    const mat = String(row[iMat]||'').trim().replace(/\.0$/,'');
+    const nom = String(row[iNome]||'').trim();
+    if (!mat || !nom || mat === '0') { invalidos.push(row); return; }
+
+    let turno = iTurno >= 0 ? String(row[iTurno]||'').trim() : '';
+    turno = turnoMap[turno] || turno;
+
+    const novoReg = {
+      matricula: mat,
+      nome:      nom,
+      cargo:     iCargo  >= 0 ? String(row[iCargo]||'').trim()  : '',
+      setor:     iSetor  >= 0 ? String(row[iSetor]||'').trim()  : '',
+      turno,
+      status:    iStatus >= 0 ? String(row[iStatus]||'').trim() : 'Ativo'
+    };
+
+    const existente = FUNCIONARIOS.find(f => f.matricula === mat);
+    if (!existente) {
+      novos.push(novoReg);
+    } else {
+      // Verificar diferenças (não alterar cargo)
+      const diffs = [];
+      if (novoReg.nome   && novoReg.nome   !== existente.nome)   diffs.push({ campo:'nome',   de:existente.nome,   para:novoReg.nome });
+      if (novoReg.setor  && novoReg.setor  !== existente.setor)  diffs.push({ campo:'setor',  de:existente.setor,  para:novoReg.setor });
+      if (novoReg.turno  && novoReg.turno  !== existente.turno)  diffs.push({ campo:'turno',  de:existente.turno,  para:novoReg.turno });
+      if (novoReg.status && novoReg.status !== existente.status) diffs.push({ campo:'status', de:existente.status, para:novoReg.status });
+      if (diffs.length > 0) atualizados.push({ reg: novoReg, existente, diffs });
+      else semAlteracao.push(existente);
+    }
+  });
+
+  importResultado = { novos, atualizados, semAlteracao, invalidos };
+
+  // Renderizar resultado
+  let html = `
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px">
+    <div style="background:var(--surface2);padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="font-weight:700;font-size:15px">📊 Resultado da Análise</div>
+      <div style="display:flex;gap:12px;font-size:13px">
+        <span style="color:#10b981">✅ ${novos.length} novos</span>
+        <span style="color:#f59e0b">📝 ${atualizados.length} com alteração</span>
+        <span style="color:#94a3b8">— ${semAlteracao.length} sem alteração</span>
+      </div>
+    </div>
+    <div style="padding:16px 18px">`;
+
+  // Novos
+  if (novos.length > 0) {
+    html += `
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:#10b981;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">➕ Novos colaboradores (${novos.length})</div>
+      ${novos.map(r => `
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:7px;margin-bottom:4px;font-size:13px">
+        <span style="font-family:'DM Mono';font-size:11px;color:var(--text3)">${r.matricula}</span>
+        <span style="font-weight:600">${r.nome}</span>
+        <span style="color:var(--text3)">·</span>
+        <span style="color:var(--text2)">${r.cargo||'Cargo não informado'}</span>
+        <span style="color:var(--text3)">·</span>
+        <span style="color:var(--text2)">${nomeSetor(r.setor)||'Setor não informado'}</span>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  // Atualizados
+  if (atualizados.length > 0) {
+    html += `
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">📝 Com alterações (${atualizados.length}) — cargo NÃO será alterado</div>
+      ${atualizados.map(({reg, existente, diffs}) => `
+      <div style="padding:8px 12px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:7px;margin-bottom:4px;font-size:13px">
+        <span style="font-family:'DM Mono';font-size:11px;color:var(--text3)">${reg.matricula}</span>
+        <span style="font-weight:600;margin-left:8px">${reg.nome}</span>
+        <div style="margin-top:4px;font-size:11px;color:var(--text3)">
+          ${diffs.map(d => `<span style="margin-right:12px">${d.campo}: <span style="color:#fca5a5">${d.de||'—'}</span> → <span style="color:#6ee7b7">${d.para}</span></span>`).join('')}
+        </div>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  if (novos.length === 0 && atualizados.length === 0) {
+    html += `<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">✅ Todos os colaboradores já estão atualizados — nenhuma alteração necessária.</div>`;
+  }
+
+  html += `</div></div>`;
+
+  // Botões de ação
+  if (novos.length > 0 || atualizados.length > 0) {
+    html += `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+      ${novos.length > 0 ? `<button onclick="impAplicar('novos')" class="btn-success">➕ Adicionar ${novos.length} novo${novos.length!==1?'s':''}</button>` : ''}
+      ${atualizados.length > 0 ? `<button onclick="impAplicar('atualizados')" style="padding:9px 18px;border:1px solid #f59e0b;border-radius:8px;background:rgba(245,158,11,.1);color:#fcd34d;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">📝 Aplicar ${atualizados.length} alteraç${atualizados.length!==1?'ões':'ão'}</button>` : ''}
+      ${novos.length > 0 && atualizados.length > 0 ? `<button onclick="impAplicar('tudo')" style="padding:9px 18px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">⚡ Aplicar tudo</button>` : ''}
+      <button onclick="showPage('importar')" class="btn-secondary">↩️ Importar outro arquivo</button>
+    </div>`;
+  }
+
+  document.getElementById('imp-resultado').innerHTML = html;
+}
+
+function impAplicar(modo) {
+  if (!importResultado) return;
+  const { novos, atualizados } = importResultado;
+  let count = 0;
+
+  if (modo === 'novos' || modo === 'tudo') {
+    novos.forEach(r => {
+      FUNCIONARIOS.push(r);
+      count++;
+    });
+    importResultado.novos = [];
+  }
+
+  if (modo === 'atualizados' || modo === 'tudo') {
+    atualizados.forEach(({reg, diffs}) => {
+      const f = FUNCIONARIOS.find(x => x.matricula === reg.matricula);
+      if (!f) return;
+      diffs.forEach(d => {
+        if (d.campo !== 'cargo') f[d.campo] = d.para; // nunca altera cargo
+      });
+      count++;
+    });
+    importResultado.atualizados = [];
+  }
+
+  salvarColaboradores();
+
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#10b981;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+  toast.textContent = `✅ ${count} colaborador${count!==1?'es':''} atualizado${count!==1?'s':''}! Salvando no Sheets…`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+
+  // Re-renderizar com resultado atualizado
+  const resto = (importResultado.novos.length + importResultado.atualizados.length);
+  if (resto === 0) {
+    document.getElementById('imp-resultado').innerHTML =
+      `<div style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:20px;text-align:center;color:#6ee7b7;font-size:14px;font-weight:600">
+        ✅ Importação concluída! Todos os dados foram salvos no Google Sheets.
+        <div style="margin-top:12px"><button onclick="showPage('colaboradores')" class="btn-success">Ver Colaboradores</button></div>
+      </div>`;
+  } else {
+    impAnalisarDados([]); // limpa estado
+  }
+}
 
 // ESC to close modal
 document.addEventListener('keydown', e => { if(e.key==='Escape') document.getElementById('modal-overlay').classList.remove('open'); });
