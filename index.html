@@ -263,17 +263,17 @@
         <div class="nav-item" onclick="showPage('colaboradores')" id="nav-colaboradores"><span class="nav-icon">👥</span> Colaboradores</div>
         <div class="nav-item" onclick="showPage('organograma')" id="nav-organograma"><span class="nav-icon">🏢</span> Organograma</div>
         <div class="nav-item" onclick="showPage('movimentacoes')" id="nav-movimentacoes"><span class="nav-icon">🔄</span> Movimentações <span id="solic-notif"></span></div>
-        <div class="nav-item" onclick="showPage('equipes')" id="nav-equipes"><span class="nav-icon">👥</span> Equipes</div>
-        <div class="nav-item" onclick="showPage('orggestor')" id="nav-orggestor"><span class="nav-icon">🌳</span> Org. por Gestor</div>
-        <div class="nav-item" onclick="showPage('cadastro')" id="nav-cadastro"><span class="nav-icon">➕</span> Cadastrar</div>
-        <div class="nav-item" onclick="showPage('importar')" id="nav-importar"><span class="nav-icon">📥</span> Importar</div>
-        <div class="nav-item" onclick="showPage('setores')" id="nav-setores"><span class="nav-icon">🗂️</span> Setores</div>
-        <div class="nav-item" onclick="showPage('cargos')" id="nav-cargos"><span class="nav-icon">💼</span> Cargos</div>
+        <div class="nav-item" onclick="showPage('equipes')" id="nav-equipes" style="display:none"><span class="nav-icon">👥</span> Equipes</div>
+        <div class="nav-item" onclick="showPage('orggestor')" id="nav-orggestor" style="display:none"><span class="nav-icon">🌳</span> Org. por Gestor</div>
+        <div class="nav-item" onclick="showPage('cadastro')" id="nav-cadastro" style="display:none"><span class="nav-icon">➕</span> Cadastrar</div>
+        <div class="nav-item" onclick="showPage('importar')" id="nav-importar" style="display:none"><span class="nav-icon">📥</span> Importar</div>
+        <div class="nav-item" onclick="showPage('setores')" id="nav-setores" style="display:none"><span class="nav-icon">🗂️</span> Setores</div>
+        <div class="nav-item" onclick="showPage('cargos')" id="nav-cargos" style="display:none"><span class="nav-icon">💼</span> Cargos</div>
         <div class="nav-item" onclick="showPage('contratacao')" id="nav-contratacao"><span class="nav-icon">📝</span> Contratação</div>
         <div class="nav-item" onclick="showPage('desligamento')" id="nav-desligamento"><span class="nav-icon">🚪</span> Desligamento</div>
-        <div class="nav-item" onclick="showPage('quadro')" id="nav-quadro"><span class="nav-icon">📊</span> Quadro de Vagas</div>
+        <div class="nav-item" onclick="showPage('quadro')" id="nav-quadro" style="display:none"><span class="nav-icon">📊</span> Quadro de Vagas</div>
         <div class="nav-item" onclick="showPage('usuarios')" id="nav-usuarios" style="display:none"><span class="nav-icon">🔐</span> Usuários</div>
-        <div class="nav-item" onclick="showPage('relatorio')" id="nav-relatorio"><span class="nav-icon">📋</span> Relatório</div>
+        <div class="nav-item" onclick="showPage('relatorio')" id="nav-relatorio" style="display:none"><span class="nav-icon">📋</span> Relatório</div>
       </div>
     </div>
     <div class="main" id="main-content"></div>
@@ -5931,6 +5931,32 @@ function setupTopbar() {
   if (navUsr) navUsr.style.display = podeGerenciarUsuarios() ? 'flex' : 'none';
   const navDesl = document.getElementById('nav-desligamento');
   if (navDesl) navDesl.style.display = podeAcessarDesligamento() ? 'flex' : 'none';
+  // Setores e Cargos: visível para admin e rh
+  const podeConfigs = ['admin','rh'].includes(currentUser.role);
+  const navSetores = document.getElementById('nav-setores');
+  if (navSetores) navSetores.style.display = podeConfigs ? 'flex' : 'none';
+  const navCargos = document.getElementById('nav-cargos');
+  if (navCargos) navCargos.style.display = podeConfigs ? 'flex' : 'none';
+  const navQuadro = document.getElementById('nav-quadro');
+  if (navQuadro) navQuadro.style.display = podeConfigs ? 'flex' : 'none';
+  // Equipes: gerente, coordenador, lider, admin, rh
+  const podeEquipes = podeGerenciarEquipes();
+  const navEquipes = document.getElementById('nav-equipes');
+  if (navEquipes) navEquipes.style.display = podeEquipes ? 'flex' : 'none';
+  const navOrgGestor = document.getElementById('nav-orggestor');
+  if (navOrgGestor) navOrgGestor.style.display = podeEquipes ? 'flex' : 'none';
+  // Relatório, Cadastro, Importar: admin e rh
+  const navRel = document.getElementById('nav-relatorio');
+  if (navRel) navRel.style.display = podeConfigs ? 'flex' : 'none';
+  const navCad = document.getElementById('nav-cadastro');
+  if (navCad) navCad.style.display = podeConfigs ? 'flex' : 'none';
+  const navImp = document.getElementById('nav-importar');
+  if (navImp) navImp.style.display = podeConfigs ? 'flex' : 'none';
+  // Contratação e Movimentações
+  const navCont = document.getElementById('nav-contratacao');
+  if (navCont) navCont.style.display = podeAcessarContratacao() ? 'flex' : 'none';
+  const navMov = document.getElementById('nav-movimentacoes');
+  if (navMov) navMov.style.display = ['admin','rh','gerente','coordenador','lider'].includes(currentUser.role) ? 'flex' : 'none';
 }
 
 function abrirTrocaSenhaModal() {
