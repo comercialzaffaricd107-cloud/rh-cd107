@@ -503,11 +503,22 @@ async function carregarDoDB() {
     desligamentos.length = 0;
     (pacote.desligamentos || []).forEach(d=>desligamentos.push(d));
 
-    const configs = pacote.configuracoes || [];
+    const configs = (pacote.configuracoes || []).map(row => {
+      // Campos vindos da planilha podem ser JSON stringificado — desserializar
+      const r = {...row};
+      ['lista','setores'].forEach(k => {
+        if (typeof r[k] === 'string' && r[k].startsWith('[')) {
+          try { r[k] = JSON.parse(r[k]); } catch(e) { r[k] = []; }
+        }
+      });
+      return r;
+    });
     const cfgSetores = configs.find(x=>x.id==='setores');
-    if (cfgSetores?.lista?.length > 0) { SETORES_LISTA.length = 0; cfgSetores.lista.forEach(s=>SETORES_LISTA.push(s)); }
+    const listaSetores = Array.isArray(cfgSetores?.lista) ? cfgSetores.lista : [];
+    if (listaSetores.length > 0) { SETORES_LISTA.length = 0; listaSetores.forEach(s=>SETORES_LISTA.push(s)); }
     const cfgCargos = configs.find(x=>x.id==='cargos');
-    if (cfgCargos?.lista?.length > 0) { CARGOS_LISTA.length = 0; cfgCargos.lista.forEach(c=>CARGOS_LISTA.push(c)); }
+    const listaCargos = Array.isArray(cfgCargos?.lista) ? cfgCargos.lista : [];
+    if (listaCargos.length > 0) { CARGOS_LISTA.length = 0; listaCargos.forEach(c=>CARGOS_LISTA.push(c)); }
     const cfgQuadro = configs.find(x=>x.id==='quadroIdeal');
     if (cfgQuadro) Object.assign(quadroIdeal, cfgQuadro);
 
