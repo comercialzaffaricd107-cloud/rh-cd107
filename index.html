@@ -474,11 +474,16 @@ async function carregarDoDB() {
     const usrs = pacote.usuarios || [];
     if (usrs.length > 0) {
       usrs.forEach(u => {
-        if (u.matricula) USERS[u.matricula] = {
-          senha: u.senha, role: u.role, nome: u.nome,
-          primeiroAcesso: u.senha === u.matricula,
-          podeGerenciarUsuarios: u.podeGerenciarUsuarios === true || u.podeGerenciarUsuarios === 'true'
-        };
+        if (u.matricula) {
+          const base = USERS[u.matricula] || {};
+          USERS[u.matricula] = {
+            senha: u.senha || base.senha || u.matricula,
+            role: u.role || base.role || 'funcionario',
+            nome: u.nome || base.nome || '',
+            primeiroAcesso: u.primeiroAcesso === true || u.primeiroAcesso === 'true' || false,
+            podeGerenciarUsuarios: u.podeGerenciarUsuarios === true || u.podeGerenciarUsuarios === 'true'
+          };
+        }
       });
     } else {
       await salvarUsuarios();
@@ -5884,7 +5889,15 @@ async function doLogin() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => { showPage('dashboard'); iniciarSyncAutomatico(); });
+  carregarDoDB().then(() => {
+    // Reatualiza currentUser.role com dado mais recente do Sheets (evita perda de permissão)
+    if (USERS[currentUser.matricula]?.role) {
+      currentUser.role = USERS[currentUser.matricula].role;
+    }
+    setupTopbar();
+    showPage('dashboard');
+    iniciarSyncAutomatico();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -5917,7 +5930,12 @@ function confirmarTrocaSenha() {
   document.getElementById('troca-senha-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => { showPage('dashboard'); iniciarSyncAutomatico(); });
+  carregarDoDB().then(() => {
+    if (USERS[currentUser.matricula]?.role) currentUser.role = USERS[currentUser.matricula].role;
+    setupTopbar();
+    showPage('dashboard');
+    iniciarSyncAutomatico();
+  });
 }
 
 function setupTopbar() {
