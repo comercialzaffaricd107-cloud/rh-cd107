@@ -476,12 +476,14 @@ async function carregarDoDB() {
       usrs.forEach(u => {
         if (u.matricula) {
           const base = USERS[u.matricula] || {};
+          // Nunca rebaixa role da conta master
+          const isMaster = u.matricula === '230543';
           USERS[u.matricula] = {
             senha: u.senha || base.senha || u.matricula,
-            role: u.role || base.role || 'funcionario',
+            role: isMaster ? 'admin' : (u.role || base.role || 'funcionario'),
             nome: u.nome || base.nome || '',
-            primeiroAcesso: u.primeiroAcesso === true || u.primeiroAcesso === 'true' || false,
-            podeGerenciarUsuarios: u.podeGerenciarUsuarios === true || u.podeGerenciarUsuarios === 'true'
+            primeiroAcesso: isMaster ? false : (u.primeiroAcesso === true || u.primeiroAcesso === 'true' || false),
+            podeGerenciarUsuarios: isMaster ? true : (u.podeGerenciarUsuarios === true || u.podeGerenciarUsuarios === 'true')
           };
         }
       });
@@ -5890,10 +5892,10 @@ async function doLogin() {
   document.getElementById('app').style.display = 'block';
   setupTopbar();
   carregarDoDB().then(() => {
-    // Reatualiza currentUser.role com dado mais recente do Sheets (evita perda de permissão)
-    if (USERS[currentUser.matricula]?.role) {
-      currentUser.role = USERS[currentUser.matricula].role;
-    }
+    // Reatualiza currentUser com dados mais recentes — master sempre admin
+    const uAtual = USERS[currentUser.matricula];
+    if (uAtual?.role) currentUser.role = uAtual.role;
+    if (currentUser.matricula === '230543') currentUser.role = 'admin';
     setupTopbar();
     showPage('dashboard');
     iniciarSyncAutomatico();
