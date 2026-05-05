@@ -182,6 +182,55 @@
     .stat-value { font-size: 22px; }
     .login-card { padding: 32px 20px; margin: 16px; }
   }
+
+  /* ── PORTAL HOME ── */
+  #portal-home { display: none; padding: 28px 24px; overflow-y: auto; height: calc(100vh - 60px); }
+  #portal-home.visible { display: block; }
+  .portal-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .portal-sub { font-size: 13px; color: var(--text2); margin-bottom: 24px; }
+  .portal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 14px;
+  }
+  .portal-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 16px;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .portal-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+  .portal-card-accent {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
+  }
+  .portal-card-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    margin-bottom: 12px;
+    margin-top: 6px;
+  }
+  .portal-card-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
+  .portal-card-desc { font-size: 11px; color: var(--text2); line-height: 1.5; margin-bottom: 10px; }
+  .portal-card-tag { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+
+  @media (max-width: 640px) {
+    .portal-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    #portal-home { padding: 16px 14px; }
+  }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -244,6 +293,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
+      <button onclick="mostrarPortal()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 12px;color:var(--text2);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;margin-right:10px">⌂ Início</button>
       <div class="topbar-brand">CD <span>107</span> · RH</div>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
@@ -259,7 +309,7 @@
     </div>
   </div>
   <!-- Navegação horizontal -->
-  <div class="nav-bar" id="nav-bar">
+  <div class="nav-bar" id="nav-bar" style="display:none">
     <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard">
       <span class="nav-icon">📊</span> Dashboard
     </div>
@@ -306,6 +356,120 @@
       <span class="nav-icon">📊</span> Quadro Vagas
     </div>
   </div>
+
+  <!-- Portal Home -->
+  <div id="portal-home">
+    <div class="portal-title">Portal RH · CD 107</div>
+    <div class="portal-sub">Escolha abaixo a área que deseja acessar.</div>
+    <div class="portal-grid">
+      <div class="portal-card" onclick="showPage('dashboard')">
+        <div class="portal-card-accent" style="background:#3b82f6"></div>
+        <div class="portal-card-icon" style="background:rgba(59,130,246,.15)">📊</div>
+        <div class="portal-card-title">Dashboard</div>
+        <div class="portal-card-desc">Visão geral, turnover e headcount por setor.</div>
+        <div class="portal-card-tag" style="color:#3b82f6">Visão Geral</div>
+      </div>
+      <div class="portal-card" onclick="showPage('colaboradores')">
+        <div class="portal-card-accent" style="background:#10b981"></div>
+        <div class="portal-card-icon" style="background:rgba(16,185,129,.15)">👥</div>
+        <div class="portal-card-title">Colaboradores</div>
+        <div class="portal-card-desc">Quadro atual, status, setor, cargo e turno.</div>
+        <div class="portal-card-tag" style="color:#10b981">Quadro Ativo</div>
+      </div>
+      <div class="portal-card" onclick="showPage('contratacao')">
+        <div class="portal-card-accent" style="background:#f59e0b"></div>
+        <div class="portal-card-icon" style="background:rgba(245,158,11,.15)">📝</div>
+        <div class="portal-card-title">Contratação</div>
+        <div class="portal-card-desc">Candidatos e checklist de documentos.</div>
+        <div class="portal-card-tag" style="color:#f59e0b">Novas Admissões</div>
+      </div>
+      <div class="portal-card" onclick="showPage('desligamento')">
+        <div class="portal-card-accent" style="background:#ef4444"></div>
+        <div class="portal-card-icon" style="background:rgba(239,68,68,.15)">🚪</div>
+        <div class="portal-card-title">Desligamento</div>
+        <div class="portal-card-desc">Registrar saída e acompanhar pendências.</div>
+        <div class="portal-card-tag" style="color:#ef4444">Saída</div>
+      </div>
+      <div class="portal-card" onclick="showPage('organograma')">
+        <div class="portal-card-accent" style="background:#06b6d4"></div>
+        <div class="portal-card-icon" style="background:rgba(6,182,212,.15)">🏢</div>
+        <div class="portal-card-title">Organograma</div>
+        <div class="portal-card-desc">Estrutura por setor: gerentes, coordenadores.</div>
+        <div class="portal-card-tag" style="color:#06b6d4">Estrutura</div>
+      </div>
+      <div class="portal-card" onclick="showPage('equipes')">
+        <div class="portal-card-accent" style="background:#8b5cf6"></div>
+        <div class="portal-card-icon" style="background:rgba(139,92,246,.15)">🌳</div>
+        <div class="portal-card-title">Equipes</div>
+        <div class="portal-card-desc">Hierarquia: gerente, coordenador, líder e time.</div>
+        <div class="portal-card-tag" style="color:#8b5cf6">Hierarquia</div>
+      </div>
+      <div class="portal-card" onclick="showPage('orggestor')">
+        <div class="portal-card-accent" style="background:#06b6d4"></div>
+        <div class="portal-card-icon" style="background:rgba(6,182,212,.15)">👤</div>
+        <div class="portal-card-title">Org. por Gestor</div>
+        <div class="portal-card-desc">Estrutura completa por gestor e vínculos.</div>
+        <div class="portal-card-tag" style="color:#06b6d4">Gestão</div>
+      </div>
+      <div class="portal-card" onclick="showPage('movimentacoes')">
+        <div class="portal-card-accent" style="background:#3b82f6"></div>
+        <div class="portal-card-icon" style="background:rgba(59,130,246,.15)">🔄</div>
+        <div class="portal-card-title">Movimentações</div>
+        <div class="portal-card-desc">Transferência, turno, promoção com aprovação.</div>
+        <div class="portal-card-tag" style="color:#3b82f6">Aprovações</div>
+      </div>
+      <div class="portal-card" onclick="showPage('quadro')">
+        <div class="portal-card-accent" style="background:#10b981"></div>
+        <div class="portal-card-icon" style="background:rgba(16,185,129,.15)">📈</div>
+        <div class="portal-card-title">Quadro de Vagas</div>
+        <div class="portal-card-desc">Comparativo entre quadro ideal e ativos.</div>
+        <div class="portal-card-tag" style="color:#10b981">Vagas</div>
+      </div>
+      <div class="portal-card" onclick="showPage('relatorio')">
+        <div class="portal-card-accent" style="background:#94a3b8"></div>
+        <div class="portal-card-icon" style="background:rgba(148,163,184,.15)">📋</div>
+        <div class="portal-card-title">Relatórios</div>
+        <div class="portal-card-desc">Filtros, listagens e exportação do quadro.</div>
+        <div class="portal-card-tag" style="color:#94a3b8">Exportar</div>
+      </div>
+      <div class="portal-card" onclick="showPage('setores')">
+        <div class="portal-card-accent" style="background:#f59e0b"></div>
+        <div class="portal-card-icon" style="background:rgba(245,158,11,.15)">🗂️</div>
+        <div class="portal-card-title">Setores</div>
+        <div class="portal-card-desc">Cadastrar, renomear e remover setores.</div>
+        <div class="portal-card-tag" style="color:#f59e0b">Configuração</div>
+      </div>
+      <div class="portal-card" onclick="showPage('cargos')">
+        <div class="portal-card-accent" style="background:#8b5cf6"></div>
+        <div class="portal-card-icon" style="background:rgba(139,92,246,.15)">💼</div>
+        <div class="portal-card-title">Cargos</div>
+        <div class="portal-card-desc">Gerenciar cargos disponíveis no sistema.</div>
+        <div class="portal-card-tag" style="color:#8b5cf6">Configuração</div>
+      </div>
+      <div class="portal-card" onclick="showPage('importar')">
+        <div class="portal-card-accent" style="background:#ef4444"></div>
+        <div class="portal-card-icon" style="background:rgba(239,68,68,.15)">📥</div>
+        <div class="portal-card-title">Importar</div>
+        <div class="portal-card-desc">Atualizar base de colaboradores via Excel.</div>
+        <div class="portal-card-tag" style="color:#ef4444">Atualizar Base</div>
+      </div>
+      <div class="portal-card" onclick="showPage('cadastro')">
+        <div class="portal-card-accent" style="background:#10b981"></div>
+        <div class="portal-card-icon" style="background:rgba(16,185,129,.15)">➕</div>
+        <div class="portal-card-title">Cadastrar</div>
+        <div class="portal-card-desc">Adicionar novo colaborador ao sistema.</div>
+        <div class="portal-card-tag" style="color:#10b981">Novo Colaborador</div>
+      </div>
+      <div class="portal-card portal-card-usuarios" id="portal-card-usuarios" style="display:none" onclick="showPage('usuarios')">
+        <div class="portal-card-accent" style="background:#06b6d4"></div>
+        <div class="portal-card-icon" style="background:rgba(6,182,212,.15)">🔐</div>
+        <div class="portal-card-title">Usuários</div>
+        <div class="portal-card-desc">Gerenciar acessos, perfis e permissões.</div>
+        <div class="portal-card-tag" style="color:#06b6d4">Acesso Restrito</div>
+      </div>
+    </div>
+  </div>
+
 
   <div class="layout">
     <div class="sidebar" style="display:none">
@@ -832,7 +996,7 @@ async function doLogin() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => { showPage('dashboard'); iniciarSyncAutomatico(); });
+  carregarDoDB().then(() => { mostrarPortal(); iniciarSyncAutomatico(); });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -865,7 +1029,7 @@ function confirmarTrocaSenha() {
   document.getElementById('troca-senha-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => { showPage('dashboard'); iniciarSyncAutomatico(); });
+  carregarDoDB().then(() => { mostrarPortal(); iniciarSyncAutomatico(); });
 }
 
 function setupTopbar() {
@@ -877,6 +1041,8 @@ function setupTopbar() {
   const tr = document.getElementById('top-role'); if (tr) tr.textContent=ROLE_LABELS[currentUser.role]||currentUser.role;
   const navUsr = document.getElementById('nav-usuarios');
   if (navUsr) navUsr.style.display = podeGerenciarUsuarios() ? 'flex' : 'none';
+  const portalUsr = document.getElementById('portal-card-usuarios');
+  if (portalUsr) portalUsr.style.display = podeGerenciarUsuarios() ? 'block' : 'none';
 }
 
 function abrirTrocaSenhaModal() {
@@ -932,7 +1098,25 @@ function closeModal(e) {
 // ═══════════════════════════════════════════════
 //  NAVEGAÇÃO
 // ═══════════════════════════════════════════════
+
+function mostrarPortal() {
+  // Mostrar portal, esconder conteúdo
+  document.getElementById('portal-home').classList.add('visible');
+  document.getElementById('main-content').style.display = 'none';
+  document.getElementById('nav-bar').style.display = 'none';
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  currentPage = 'portal';
+  // Mostrar card de usuários se tiver permissão
+  const cardUsr = document.getElementById('portal-card-usuarios');
+  if (cardUsr) cardUsr.style.display = podeGerenciarUsuarios() ? 'block' : 'none';
+}
+
 function showPage(page) {
+  // Esconder portal, mostrar nav e conteúdo
+  document.getElementById('portal-home').classList.remove('visible');
+  document.getElementById('main-content').style.display = 'block';
+  document.getElementById('nav-bar').style.display = 'flex';
+
   currentPage = page;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const nav = document.getElementById('nav-' + page);
