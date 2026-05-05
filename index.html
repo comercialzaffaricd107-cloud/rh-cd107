@@ -518,14 +518,48 @@ function mostrarStatusDB(msg, cor) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'db-status';
-    el.style.cssText = 'position:fixed;bottom:70px;right:16px;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;transition:all .3s';
+    el.style.cssText = [
+      'position:fixed',
+      'bottom:20px',
+      'right:20px',
+      'padding:10px 16px',
+      'border-radius:10px',
+      'font-size:13px',
+      'font-weight:600',
+      'z-index:9999',
+      'transition:all .3s',
+      'display:flex',
+      'align-items:center',
+      'gap:8px',
+      'box-shadow:0 4px 16px rgba(0,0,0,.4)',
+      'min-width:160px',
+      'backdrop-filter:blur(8px)',
+    ].join(';');
     document.body.appendChild(el);
   }
-  el.style.background = cor==='ok'?'rgba(16,185,129,.9)':cor==='err'?'rgba(239,68,68,.9)':cor==='save'?'rgba(59,130,246,.9)':'rgba(100,116,139,.7)';
+
+  const configs = {
+    ok:   { bg:'rgba(16,185,129,.95)',  icon:'✅', fade: true  },
+    err:  { bg:'rgba(239,68,68,.95)',   icon:'❌', fade: false },
+    save: { bg:'rgba(59,130,246,.95)',  icon:'💾', fade: false },
+    info: { bg:'rgba(100,116,139,.85)', icon:'⏳', fade: false },
+  };
+  const cfg = configs[cor] || configs.info;
+
+  el.style.background = cfg.bg;
   el.style.color = '#fff';
   el.style.opacity = '1';
-  el.textContent = msg;
-  if (cor==='ok'||cor==='save') setTimeout(()=>{ if(el) el.style.opacity='0.3'; },3000);
+  el.style.transform = 'translateY(0)';
+  el.innerHTML = `<span style="font-size:16px">${cfg.icon}</span><span>${msg}</span>`;
+
+  // Após salvar com sucesso: fica visível por 4s depois some devagar
+  if (cfg.fade) {
+    clearTimeout(el._fadeTimer);
+    el._fadeTimer = setTimeout(() => {
+      el.style.opacity = '0.25';
+      el.style.transform = 'translateY(4px)';
+    }, 4000);
+  }
 }
 
 // ── Conversões Firestore REST ──
@@ -1723,8 +1757,8 @@ function getLideres(){
     .sort((a,b)=>a.nome.localeCompare(b.nome));
 }
 function getFuncionariosSemVinculo(){
-  const lidMats=new Set(getLideres().map(l=>l.matricula));
-  return FUNCIONARIOS.filter(f=>['Ativo','Experiência'].includes(f.status)&&!lidMats.has(f.matricula)&&!vinculacoes[f.matricula])
+  // Inclui todos os ativos sem vínculo (operacionais E líderes/coords/gerentes)
+  return FUNCIONARIOS.filter(f=>['Ativo','Experiência'].includes(f.status)&&!vinculacoes[f.matricula])
     .sort((a,b)=>a.nome.localeCompare(b.nome));
 }
 function getEquipe(matLider){
@@ -1835,7 +1869,8 @@ function abrirVincular(matLider){
 
 function filtrarDisponiveis(matLider){
   const q=(document.getElementById('vinc-search')?.value||'').toLowerCase();
-  const disponiveis=getFuncionariosSemVinculo().filter(f=>!q||f.nome.toLowerCase().includes(q)||f.matricula.includes(q));
+  // Todos sem vínculo (incluindo líderes e coordenadores que podem ser vinculados a gerentes)
+  const disponiveis=getFuncionariosSemVinculo().filter(f=>f.matricula!==matLider&&(!q||f.nome.toLowerCase().includes(q)||f.matricula.includes(q)));
   const jaVinc=getEquipe(matLider).filter(f=>!q||f.nome.toLowerCase().includes(q));
   const lista=document.getElementById('vinc-lista'); if(!lista) return;
   let html='';
@@ -1859,19 +1894,44 @@ function filtrarDisponiveis(matLider){
 
 function abrirVincularUm(matFunc){
   const f=FUNCIONARIOS.find(x=>x.matricula===matFunc);
-  const lideres=getLideres();
+  const gestores=FUNCIONARIOS.filter(x=>['Ativo','Experiência'].includes(x.status)&&x.matricula!==matFunc)
+    .sort((a,b)=>{
+      // Ordenar: Gerentes > Coordenadores > Líderes > outros
+      const peso = c => c.includes('Gerente')?0:c.includes('Coordenador')?1:c.includes('Lider')||c.includes('Supervisor')?2:3;
+      const d = peso(a.cargo)-peso(b.cargo);
+      return d!==0?d:a.nome.localeCompare(b.nome);
+    });
   document.getElementById('modal-content').innerHTML=`
-    <h3>Vincular</h3><div class="modal-sub">${f.nome}</div>
-    <div class="form-group"><label>Líder</label>
-      <select id="vu-lider" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
-        <option value="">Selecionar…</option>
-        ${lideres.map(l=>`<option value="${l.matricula}">${l.nome} · ${nomeSetor(l.setor)}</option>`).join('')}
-      </select></div>
+    <h3>Vincular Colaborador</h3>
+    <div class="modal-sub">${f.nome} · ${f.cargo}</div>
+    <div class="form-group" style="margin-bottom:14px"><label>Buscar gestor</label>
+      <input type="text" id="vu-busca" oninput="filtrarGestoresVincular('${matFunc}')" placeholder="Nome ou cargo…"
+        style="width:100%;padding:9px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none;margin-bottom:8px">
+      <select id="vu-lider" size="8" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none;height:200px">
+        ${gestores.map(l=>{
+          const cc=cargoColor(l.cargo);
+          return `<option value="${l.matricula}">${cc.icon} ${l.nome} · ${l.cargo}</option>`;
+        }).join('')}
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
       <button class="btn-success" onclick="confirmarVincularUm('${matFunc}')">Vincular</button>
     </div>`;
   document.getElementById('modal-overlay').classList.add('open');
+}
+
+function filtrarGestoresVincular(matFunc){
+  const q=(document.getElementById('vu-busca')?.value||'').toLowerCase();
+  const sel=document.getElementById('vu-lider');
+  if(!sel) return;
+  const gestores=FUNCIONARIOS.filter(x=>['Ativo','Experiência'].includes(x.status)&&x.matricula!==matFunc
+    &&(!q||x.nome.toLowerCase().includes(q)||x.cargo.toLowerCase().includes(q)))
+    .sort((a,b)=>{
+      const peso=c=>c.includes('Gerente')?0:c.includes('Coordenador')?1:c.includes('Lider')||c.includes('Supervisor')?2:3;
+      const d=peso(a.cargo)-peso(b.cargo); return d!==0?d:a.nome.localeCompare(b.nome);
+    });
+  sel.innerHTML=gestores.map(l=>{const cc=cargoColor(l.cargo);return`<option value="${l.matricula}">${cc.icon} ${l.nome} · ${l.cargo}</option>`;}).join('');
 }
 
 function confirmarVincularUm(matFunc){
@@ -1886,10 +1946,13 @@ function abrirVincularLote(){
   const lideres=getLideres();
   document.getElementById('modal-content').innerHTML=`
     <h3>Vincular em Lote</h3>
-    <div class="form-group" style="margin-bottom:14px"><label>Líder</label>
+    <div class="form-group" style="margin-bottom:14px"><label>Gestor / Líder</label>
       <select id="lote-lider" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
         <option value="">Selecionar…</option>
-        ${lideres.map(l=>`<option value="${l.matricula}">${l.nome} · ${nomeSetor(l.setor)}</option>`).join('')}
+        ${FUNCIONARIOS.filter(x=>['Ativo','Experiência'].includes(x.status)).sort((a,b)=>{
+          const peso=c=>c.includes('Gerente')?0:c.includes('Coordenador')?1:c.includes('Lider')||c.includes('Supervisor')?2:3;
+          const d=peso(a.cargo)-peso(b.cargo);return d!==0?d:a.nome.localeCompare(b.nome);
+        }).map(l=>`<option value="${l.matricula}">${cargoColor(l.cargo).icon} ${l.nome} · ${l.cargo}</option>`).join('')}
       </select></div>
     <input type="text" id="lote-search" oninput="filtrarLote()" placeholder="Buscar…"
       style="width:100%;padding:9px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none;margin-bottom:10px">
@@ -2559,6 +2622,15 @@ function renderContratacao() {
     <button class="btn-new" onclick="abrirAdicionarCandidato()">+ Adicionar Candidato</button>
   </div>
 
+  <!-- Legenda de tempo -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;font-size:11px">
+    <span style="display:flex;align-items:center;gap:4px">🟢 <span style="color:var(--text2)">≤ 3 dias</span></span>
+    <span style="display:flex;align-items:center;gap:4px">🔵 <span style="color:var(--text2)">4–7 dias</span></span>
+    <span style="display:flex;align-items:center;gap:4px">🟡 <span style="color:var(--text2)">8–15 dias</span></span>
+    <span style="display:flex;align-items:center;gap:4px">🔴 <span style="color:var(--text2)">16–30 dias</span></span>
+    <span style="display:flex;align-items:center;gap:4px">🟣 <span style="color:var(--text2)">&gt; 30 dias — Urgente!</span></span>
+  </div>
+
   <div class="search-bar" style="margin-bottom:16px">
     <input type="text" id="cont-busca" placeholder="Buscar candidato…" oninput="renderContratacaoTabela()"
       style="flex:1;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
@@ -2632,6 +2704,21 @@ function salvarCandidato() {
 }
 
 
+
+function calcularTempoContratacao(dataInicio) {
+  if (!dataInicio) return { dias: 0, label: '—', cor: '#94a3b8', emoji: '⚪' };
+  const inicio = new Date(dataInicio);
+  const hoje   = new Date();
+  const dias   = Math.floor((hoje - inicio) / (1000 * 60 * 60 * 24));
+  let label, cor, emoji;
+  if (dias <= 3)       { label = dias+'d';  cor = '#10b981'; emoji = '🟢'; }
+  else if (dias <= 7)  { label = dias+'d';  cor = '#3b82f6'; emoji = '🔵'; }
+  else if (dias <= 15) { label = dias+'d';  cor = '#f59e0b'; emoji = '🟡'; }
+  else if (dias <= 30) { label = dias+'d';  cor = '#ef4444'; emoji = '🔴'; }
+  else                 { label = Math.floor(dias/30)+'m '+dias%30+'d'; cor = '#8b5cf6'; emoji = '🟣'; }
+  return { dias, label, cor, emoji };
+}
+
 function renderContratacaoTabela() {
   const busca   = (document.getElementById('cont-busca')?.value||'').toLowerCase();
   const filtro  = document.getElementById('cont-filtro')?.value||'';
@@ -2662,6 +2749,7 @@ function renderContratacaoTabela() {
       <thead><tr style="background:var(--surface2)">
         <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left">Candidato</th>
         <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left">Cargo / Setor</th>
+        <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:center">Tempo</th>
         <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:center">Básicos</th>
         <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:center">Complementares</th>
         <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:center">Ação</th>
@@ -2682,6 +2770,12 @@ function renderContratacaoTabela() {
             <td style="padding:10px 14px;font-size:12px;color:var(--text2)">
               ${f.cargo||'—'}<br><span style="color:var(--text3)">${nomeSetor(f.setor)||'—'}</span>
             </td>
+            <td style="padding:10px 14px;text-align:center">${(()=>{
+              const t=calcularTempoContratacao(contratacoes[f.matricula]?.data);
+              return `<div style="font-size:15px;margin-bottom:2px">${t.emoji}</div>
+              <div style="font-size:12px;font-weight:700;color:${t.cor};font-family:'DM Mono'">${t.label}</div>
+              ${t.dias>15?`<div style="font-size:9px;color:${t.cor};font-weight:700;text-transform:uppercase;letter-spacing:.06em">${t.dias>30?'Urgente!':'Atenção'}</div>`:''}`;
+            })()}</td>
             <td style="padding:10px 14px;text-align:center">
               <div style="font-size:12px;font-weight:700;color:${okB===DOCS_BASICOS.length?'var(--green)':'var(--yellow)'}">${okB}/${DOCS_BASICOS.length}</div>
               <div style="background:var(--border);border-radius:4px;height:4px;margin-top:4px">
