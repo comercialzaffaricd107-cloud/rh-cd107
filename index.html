@@ -346,6 +346,9 @@
     <div class="nav-item" onclick="showPage('relatorio')" id="nav-relatorio">
       <span class="nav-icon">📋</span> Relatório
     </div>
+    <div class="nav-item" onclick="showPage('auditoria')" id="nav-auditoria" style="display:none">
+      <span class="nav-icon">🔍</span> Auditoria
+    </div>
     <div class="nav-item" onclick="showPage('contratacao')" id="nav-contratacao">
       <span class="nav-icon">📝</span> Contratação
     </div>
@@ -459,6 +462,13 @@
         <div class="portal-card-title">Cadastrar</div>
         <div class="portal-card-desc">Adicionar novo colaborador ao sistema.</div>
         <div class="portal-card-tag" style="color:#10b981">Novo Colaborador</div>
+      </div>
+      <div class="portal-card portal-card-auditoria" id="portal-card-auditoria" onclick="showPage('auditoria')">
+        <div class="portal-card-accent" style="background:#06b6d4"></div>
+        <div class="portal-card-icon" style="background:rgba(6,182,212,.15)">🔍</div>
+        <div class="portal-card-title">Auditoria</div>
+        <div class="portal-card-desc">Histórico de alterações: quem fez o quê e quando.</div>
+        <div class="portal-card-tag" style="color:#06b6d4">Log de Atividades</div>
       </div>
       <div class="portal-card portal-card-usuarios" id="portal-card-usuarios" style="display:none" onclick="showPage('usuarios')">
         <div class="portal-card-accent" style="background:#06b6d4"></div>
@@ -634,6 +644,12 @@ async function carregarDoDB() {
     // Quadro ideal
     const qi = await sheetsGet('quadroideal');
     qi.forEach(q=>{ if(q.setor&&q.ideal) quadroIdeal[q.setor]=parseInt(q.ideal)||0; });
+
+    // Log de auditoria
+    try {
+      const logs = await sheetsGet('auditoria');
+      if (logs.length > 0) { logAuditoria.length=0; logs.forEach(l=>logAuditoria.push(l)); }
+    } catch(e) { console.warn('Log não carregado:', e.message); }
 
     DB_PRONTO = true;
     mostrarStatusDB('✅ Conectado','ok');
@@ -924,7 +940,7 @@ async function doLogin() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => { mostrarPortal(); iniciarSyncAutomatico(); });
+  carregarDoDB().then(() => { registrarLog('Login', 'Acesso ao sistema'); mostrarPortal(); iniciarSyncAutomatico(); });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -947,6 +963,7 @@ function confirmarTrocaSenha() {
   if (nova.length < 6) { err.textContent='Mínimo 6 caracteres.'; err.style.display='block'; return; }
   if (nova === currentUser.matricula) { err.textContent='Não pode ser igual à matrícula.'; err.style.display='block'; return; }
   if (nova !== conf) { err.textContent='Senhas não conferem.'; err.style.display='block'; return; }
+  registrarLog('Troca de Senha', 'Senha alterada pelo próprio usuário');
   USERS[currentUser.matricula].senha = nova;
   USERS[currentUser.matricula].primeiroAcesso = false;
   salvarSenhaFirebase(currentUser.matricula, {
@@ -957,7 +974,7 @@ function confirmarTrocaSenha() {
   document.getElementById('troca-senha-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTopbar();
-  carregarDoDB().then(() => { mostrarPortal(); iniciarSyncAutomatico(); });
+  carregarDoDB().then(() => { registrarLog('Login', 'Acesso ao sistema'); mostrarPortal(); iniciarSyncAutomatico(); });
 }
 
 function setupTopbar() {
@@ -971,6 +988,12 @@ function setupTopbar() {
   if (navUsr) navUsr.style.display = podeGerenciarUsuarios() ? 'flex' : 'none';
   const portalUsr = document.getElementById('portal-card-usuarios');
   if (portalUsr) portalUsr.style.display = podeGerenciarUsuarios() ? 'block' : 'none';
+  // Auditoria: só Admin e RH
+  const podeAuditoria = ['admin','rh'].includes(currentUser.role) || podeGerenciarUsuarios();
+  const navAud = document.getElementById('nav-auditoria');
+  if (navAud) navAud.style.display = podeAuditoria ? 'flex' : 'none';
+  const portalAud = document.getElementById('portal-card-auditoria');
+  if (portalAud) portalAud.style.display = podeAuditoria ? 'block' : 'none';
 }
 
 function abrirTrocaSenhaModal() {
@@ -1066,6 +1089,7 @@ function showPage(page) {
   else if (page==='contratacao')   { main.innerHTML=renderContratacao(); setTimeout(renderContratacaoTabela,10); }
   else if (page==='desligamento')  main.innerHTML = renderDesligamento();
   else if (page==='quadro')        main.innerHTML = renderQuadro();
+  else if (page==='auditoria')     main.innerHTML = renderAuditoria();
   updateNotif();
 }
 
@@ -1326,6 +1350,7 @@ function salvarEdicao(mat) {
   const errEl=document.getElementById('ed-error'); errEl.style.display='none';
   if(!nome){errEl.textContent='Nome obrigatório.';errEl.style.display='block';return;}
   f.nome=nome; f.cargo=cargo; f.setor=setor; f.turno=turno; f.status=status;
+  registrarLog('Editar Colaborador', `${nome} (${mat}) — cargo: ${cargo}, setor: ${nomeSetor(setor)}, turno: ${turno}, status: ${status}`);
   salvarColaboradores();
   closeModal();
   if(currentPage==='colaboradores') renderColabTable();
@@ -1529,6 +1554,7 @@ function aprovar(id,quem,aprovado){
   const s=solicitacoes.find(x=>x.id===id); if(!s) return;
   if(quem==='gerente') s.aprovGerente=aprovado;
   if(quem==='rh') s.aprovRH=aprovado;
+  const statusAntes = s.status;
   if(s.aprovGerente===false||s.aprovRH===false) s.status='rejeitado';
   else if(s.aprovGerente===true&&s.aprovRH===true) {
     s.status='aprovado';
@@ -1545,6 +1571,7 @@ function aprovar(id,quem,aprovado){
       }
     }
   }
+  registrarLog('Aprovação/Rejeição', `${s.id} — ${quem.toUpperCase()} ${aprovado?'aprovou':'rejeitou'} — Status: ${s.status}`);
   salvarMovimentacoes();
   document.getElementById('main-content').innerHTML=renderMovimentacoes(); updateNotif();
 }
@@ -1633,6 +1660,7 @@ function submitMovimentacao(){
     cargoAtual:f.cargo, cargoNovo: cargoNovo,
     status:'pendente',aprovGerente:null,aprovRH:null,obs:''
   });
+  registrarLog('Nova Movimentação', `${id} — ${tipo} para ${f.nome}${cargoNovo?' → '+cargoNovo:''}`);
   salvarMovimentacoes(); closeModal();
   document.getElementById('main-content').innerHTML=renderMovimentacoes(); updateNotif();
 }
@@ -1745,9 +1773,16 @@ function toggleRecolherEquipe(mat){if(equipesRecolhidas.has(mat))equipesRecolhid
 function equipesRecolherTodas(){getLideres().forEach(l=>equipesRecolhidas.add(l.matricula));document.getElementById('main-content').innerHTML=renderEquipes();}
 function equipesExpandirTodas(){equipesRecolhidas.clear();document.getElementById('main-content').innerHTML=renderEquipes();}
 
-function vincular(matFunc,matLider){vinculacoes[matFunc]=matLider;salvarVinculacoes();filtrarDisponiveis(matLider);}
+function vincular(matFunc,matLider){
+  const f=FUNCIONARIOS.find(x=>x.matricula===matFunc);
+  const l=FUNCIONARIOS.find(x=>x.matricula===matLider);
+  registrarLog('Vincular Equipe', `${f?.nome||matFunc} vinculado a ${l?.nome||matLider}`);
+  vinculacoes[matFunc]=matLider;salvarVinculacoes();filtrarDisponiveis(matLider);}
 function desvincularRerender(matFunc,matLider){delete vinculacoes[matFunc];salvarVinculacoes();filtrarDisponiveis(matLider);}
-function desvincular(matFunc){delete vinculacoes[matFunc];salvarVinculacoes();document.getElementById('main-content').innerHTML=renderEquipes();}
+function desvincular(matFunc){
+  const f=FUNCIONARIOS.find(x=>x.matricula===matFunc);
+  registrarLog('Desvincular Equipe', `${f?.nome||matFunc} removido da equipe`);
+  delete vinculacoes[matFunc];salvarVinculacoes();document.getElementById('main-content').innerHTML=renderEquipes();}
 
 function abrirVincular(matLider){
   const lider=FUNCIONARIOS.find(f=>f.matricula===matLider);
@@ -2033,6 +2068,7 @@ function salvarCadastro(){
   if(cargo.includes('Gerente')||cargo.includes('Coordenador')||cargo.includes('Lider')||cargo.includes('Supervisor')){
     USERS[mat]={senha:mat,role:cargo.includes('Gerente')?'gerente':cargo.includes('Coordenador')?'coordenador':'lider',nome,primeiroAcesso:true};
   }
+  registrarLog('Cadastrar Colaborador', `${nome} (${mat}) — ${cargo} — ${nomeSetor(setor)}`);
   salvarColaboradores(); if(lider) salvarVinculacoes();
   cadastrosRecentes.unshift(novoFunc);
   okEl.textContent=`✅ ${nome} (${mat}) cadastrado!`; okEl.style.display='block';
@@ -2212,6 +2248,7 @@ function salvarSetor(setorAntigo){
   const isNovo=!setorAntigo;
   if(isNovo){if(SETORES_LISTA.includes(novoNome)){errEl.textContent='Setor já existe.';errEl.style.display='block';return;}SETORES_LISTA.push(novoNome);SETORES_LISTA.sort();}
   else{const idx=SETORES_LISTA.indexOf(setorAntigo);if(idx>=0)SETORES_LISTA[idx]=novoNome;else SETORES_LISTA.push(novoNome);let c=0;FUNCIONARIOS.forEach(f=>{if(f.setor===setorAntigo){f.setor=novoNome;c++;}});if(c>0)salvarColaboradores();}
+  registrarLog(isNovo?'Criar Setor':'Editar Setor', isNovo?`"${novoNome}" criado`:`"${setorAntigo}" → "${novoNome}"`);
   salvarSetores();closeModal();document.getElementById('main-content').innerHTML=renderSetores();
 }
 function excluirSetor(setor){if(!confirm(`Excluir "${setor}"?`))return;const idx=SETORES_LISTA.indexOf(setor);if(idx>=0)SETORES_LISTA.splice(idx,1);salvarSetores();document.getElementById('main-content').innerHTML=renderSetores();}
@@ -2268,6 +2305,7 @@ function salvarCargo(cargoAntigo){
   const isNovo=!cargoAntigo;
   if(isNovo){if(CARGOS_LISTA.includes(nome)){errEl.textContent='Cargo já existe.';errEl.style.display='block';return;}CARGOS_LISTA.push(nome);CARGOS_LISTA.sort();}
   else{const idx=CARGOS_LISTA.indexOf(cargoAntigo);if(idx>=0)CARGOS_LISTA[idx]=nome;else CARGOS_LISTA.push(nome);CARGOS_LISTA.sort();let c=0;FUNCIONARIOS.forEach(f=>{if(f.cargo===cargoAntigo){f.cargo=nome;c++;}});if(c>0)salvarColaboradores();}
+  registrarLog(isNovo?'Criar Cargo':'Editar Cargo', isNovo?`"${nome}" criado`:`"${cargoAntigo}" → "${nome}"`);
   salvarCargos();closeModal();document.getElementById('main-content').innerHTML=renderCargos();
 }
 function excluirCargo(cargo){if(!confirm(`Excluir "${cargo}"?`))return;const idx=CARGOS_LISTA.indexOf(cargo);if(idx>=0)CARGOS_LISTA.splice(idx,1);salvarCargos();document.getElementById('main-content').innerHTML=renderCargos();}
@@ -2458,8 +2496,174 @@ function exportarRelatorioCSV(){
   a.download='Relatorio_CD107_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
 }
 
+
+// ═══════════════════════════════════════════════
+//  LOG DE AUDITORIA
+// ═══════════════════════════════════════════════
+function renderAuditoria() {
+  if (!['admin','rh'].includes(currentUser.role) && !podeGerenciarUsuarios())
+    return '<div class="empty-state"><div class="icon">🔒</div><p>Acesso restrito ao RH e Administrador.</p></div>';
+
+  // Filtros
+  const usuarios = [...new Set(logAuditoria.map(l=>l.usuario))].sort();
+
+  return `
+  <div class="page-header">
+    <h2>🔍 Log de Auditoria</h2>
+    <p>${logAuditoria.length} registro${logAuditoria.length!==1?'s':''} de atividade</p>
+  </div>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Usuário</div>
+      <select id="aud-usuario" onchange="renderAuditoriaTabela()" style="padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+        <option value="">Todos</option>
+        ${usuarios.map(u=>`<option value="${u}">${u}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Ação</div>
+      <select id="aud-acao" onchange="renderAuditoriaTabela()" style="padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+        <option value="">Todas</option>
+        ${[...new Set(logAuditoria.map(l=>l.acao))].sort().map(a=>`<option value="${a}">${a}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Data</div>
+      <input type="date" id="aud-data" onchange="renderAuditoriaTabela()" style="padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Buscar</div>
+      <input type="text" id="aud-busca" oninput="renderAuditoriaTabela()" placeholder="Detalhe…" style="padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:inherit;font-size:13px;outline:none;width:180px">
+    </div>
+    <button onclick="exportarLogCSV()" style="padding:7px 16px;border:1px solid var(--green);border-radius:7px;background:rgba(16,185,129,.1);color:#6ee7b7;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">⬇️ CSV</button>
+    <button onclick="renderAuditoriaLimparFiltros()" style="padding:7px 16px;border:1px solid var(--border);border-radius:7px;background:none;color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer">✕ Limpar</button>
+  </div>
+
+  <div id="aud-tabela"></div>`;
+}
+
+function renderAuditoriaTabela() {
+  const usuario = document.getElementById('aud-usuario')?.value||'';
+  const acao    = document.getElementById('aud-acao')?.value||'';
+  const data    = document.getElementById('aud-data')?.value||'';
+  const busca   = (document.getElementById('aud-busca')?.value||'').toLowerCase();
+
+  let lista = logAuditoria.filter(l=>
+    (!usuario || l.usuario===usuario) &&
+    (!acao    || l.acao===acao) &&
+    (!data    || l.data===new Date(data+'T00:00:00').toLocaleDateString('pt-BR')) &&
+    (!busca   || l.detalhe.toLowerCase().includes(busca) || l.acao.toLowerCase().includes(busca))
+  );
+
+  const wrap = document.getElementById('aud-tabela'); if(!wrap) return;
+
+  if (lista.length===0) {
+    wrap.innerHTML='<div class="empty-state"><div class="icon">🔍</div><p>Nenhum registro encontrado.</p></div>';
+    return;
+  }
+
+  const acaoCor = acao => {
+    if (acao.includes('Login'))       return { bg:'rgba(59,130,246,.1)',  cor:'#93c5fd' };
+    if (acao.includes('Editar'))      return { bg:'rgba(245,158,11,.1)',  cor:'#fcd34d' };
+    if (acao.includes('Cadastrar'))   return { bg:'rgba(16,185,129,.1)',  cor:'#6ee7b7' };
+    if (acao.includes('Desligamento'))return { bg:'rgba(239,68,68,.1)',   cor:'#fca5a5' };
+    if (acao.includes('Movimentação'))return { bg:'rgba(139,92,246,.1)',  cor:'#c4b5fd' };
+    if (acao.includes('Aprovação'))   return { bg:'rgba(16,185,129,.1)',  cor:'#6ee7b7' };
+    if (acao.includes('Vincular'))    return { bg:'rgba(6,182,212,.1)',   cor:'#67e8f9' };
+    if (acao.includes('Contratação')) return { bg:'rgba(245,158,11,.1)',  cor:'#fcd34d' };
+    if (acao.includes('Senha'))       return { bg:'rgba(239,68,68,.1)',   cor:'#fca5a5' };
+    return { bg:'rgba(100,116,139,.1)', cor:'#94a3b8' };
+  };
+
+  wrap.innerHTML = `
+  <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${lista.length} registro${lista.length!==1?'s':''}</div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;min-width:700px">
+      <thead><tr style="background:var(--surface2)">
+        <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left;white-space:nowrap">Data / Hora</th>
+        <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left">Usuário</th>
+        <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left">Perfil</th>
+        <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left">Ação</th>
+        <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text2);text-align:left">Detalhe</th>
+      </tr></thead>
+      <tbody>
+        ${lista.map((l,i)=>{
+          const c = acaoCor(l.acao);
+          return `<tr style="border-top:1px solid var(--border)">
+            <td style="padding:9px 14px;white-space:nowrap;font-family:'DM Mono';font-size:11px;color:var(--text3)">${l.data}<br>${l.hora}</td>
+            <td style="padding:9px 14px">
+              <div style="font-size:13px;font-weight:600">${l.usuario}</div>
+              <div style="font-size:10px;color:var(--text3)">${l.matricula}</div>
+            </td>
+            <td style="padding:9px 14px;font-size:12px;color:var(--text2)">${ROLE_LABELS[l.role]||l.role||'—'}</td>
+            <td style="padding:9px 14px">
+              <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;background:${c.bg};color:${c.cor};white-space:nowrap">${l.acao}</span>
+            </td>
+            <td style="padding:9px 14px;font-size:12px;color:var(--text2)">${l.detalhe||'—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderAuditoriaLimparFiltros() {
+  ['aud-usuario','aud-acao','aud-data'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const b=document.getElementById('aud-busca');if(b)b.value='';
+  renderAuditoriaTabela();
+}
+
+function exportarLogCSV() {
+  var CRLF = String.fromCharCode(13, 10);
+  var esc = function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; };
+  var headers = ['Data','Hora','Matricula','Usuario','Perfil','Acao','Detalhe'];
+  var rows = logAuditoria.map(function(l) {
+    return [l.data, l.hora, l.matricula, l.usuario,
+            ROLE_LABELS[l.role]||l.role||'', l.acao, l.detalhe||''];
+  });
+  var linhas = [headers].concat(rows);
+  var csv = linhas.map(function(r){ return r.map(esc).join(';'); }).join(CRLF);
+  var BOM = String.fromCharCode(0xFEFF);
+  var blob = new Blob([BOM + csv], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'Log_Auditoria_CD107_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+
 // ESC fecha modal
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('modal-overlay').classList.remove('open');});
+
+
+// ─── Log de Auditoria ───
+let logAuditoria = []; // { data, hora, usuario, matricula, acao, detalhe }
+
+function registrarLog(acao, detalhe) {
+  if (!currentUser) return;
+  const agora = new Date();
+  const entrada = {
+    id: Date.now().toString(),
+    data: agora.toLocaleDateString('pt-BR'),
+    hora: agora.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}),
+    usuario: currentUser.nome,
+    matricula: currentUser.matricula,
+    role: currentUser.role,
+    acao,
+    detalhe: detalhe || ''
+  };
+  logAuditoria.unshift(entrada); // mais recente primeiro
+  if (logAuditoria.length > 500) logAuditoria.pop(); // limitar a 500 entradas
+  salvarLog();
+}
+
+async function salvarLog() {
+  try {
+    await sheetsPost('auditoria', logAuditoria.slice(0, 500));
+  } catch(e) { console.warn('Erro ao salvar log:', e.message); }
+}
+
 
 // ─── Estado dos novos módulos ───
 let contratacoes   = {}; // { matricula: { checklist:{}, obs:'', data:'' } }
@@ -2589,6 +2793,7 @@ function salvarCandidato() {
   if (contratacoes[mat]) { errEl.textContent='Já existe um candidato com este identificador.'; errEl.style.display='block'; return; }
 
   contratacoes[mat] = { nome, cargo, setor, checklist:{}, obs:'', data: new Date().toISOString().slice(0,10) };
+  registrarLog('Contratação — Candidato', `${nome} adicionado ao checklist`);
   fbSetDoc('contratacoes', mat, { matricula:mat, nome, cargo, setor, checklist:{}, obs:'', data: contratacoes[mat].data })
     .catch(err => console.error(err));
 
@@ -2726,8 +2931,10 @@ function removerContratacao(mat) {
 
 function salvarChecklist(mat) {
   if (!contratacoes[mat]) return;
+  const nomeC = contratacoes[mat]?.nome||mat;
   contratacoes[mat].obs  = document.getElementById('chk-obs')?.value||'';
   contratacoes[mat].data = new Date().toISOString().slice(0,10);
+  registrarLog('Contratação — Checklist', `Checklist atualizado de ${nomeC}`);
   // Salvar no Firebase
   fbSetDoc('contratacoes', mat, { matricula: mat, ...contratacoes[mat] }).catch(err => console.error(err));
   closeModal();
@@ -2868,6 +3075,7 @@ function salvarDesligamento() {
     dataEfetiva:dataEf, motivo, status:'pendente', obs:''
   };
   desligamentos.push(novo);
+  registrarLog('Desligamento', `${f.nome} (${mat}) — ${tipo}${dataEf?' em '+dataEf:''}`);
 
   // Atualizar status do colaborador se solicitado
   if (novoSt && f) {
@@ -3028,8 +3236,9 @@ function editarIdeal(setor, atual) {
 
 function salvarIdeal(setor) {
   const val = parseInt(document.getElementById('qi-valor')?.value||'0');
+  registrarLog('Quadro Ideal', `${nomeSetor(setor)}: ${val} vagas definidas`);
   quadroIdeal[setor] = val;
-  // Salvar no Firebase
+  // Salvar
   fbSetDoc('configuracoes','quadroIdeal',quadroIdeal).catch(err=>console.error(err));
   closeModal();
   document.getElementById('main-content').innerHTML = renderQuadro();
