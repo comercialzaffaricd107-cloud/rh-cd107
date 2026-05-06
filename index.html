@@ -2811,7 +2811,21 @@ function registrarLog(acao, detalhe) {
 
 async function salvarLog() {
   try {
-    await sheetsPost('auditoria', logAuditoria.slice(0, 500));
+    // Buscar log atual do Sheets para não perder entradas de outros usuários
+    const logsSheets = await sheetsGet('auditoria').catch(() => []);
+    // IDs já no Sheets
+    const idsSheets = new Set(logsSheets.map(l => l.id));
+    // Entradas locais ainda não salvas no Sheets
+    const novasEntradas = logAuditoria.filter(l => !idsSheets.has(l.id));
+    // Mesclar: novas entradas + entradas do Sheets, ordenadas por id (desc)
+    const merged = [...novasEntradas, ...logsSheets]
+      .sort((a, b) => (b.id||'').localeCompare(a.id||''))
+      .slice(0, 500);
+    // Atualizar array local com o merge completo
+    logAuditoria.length = 0;
+    merged.forEach(l => logAuditoria.push(l));
+    // Salvar no Sheets
+    await sheetsPost('auditoria', merged);
   } catch(e) { console.warn('Erro ao salvar log:', e.message); }
 }
 
