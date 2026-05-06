@@ -1128,6 +1128,11 @@ function renderDashboard() {
   const topSetores = Object.entries(setorCount).sort((a,b)=>b[1]-a[1]);
   const maxC = topSetores.length>0 ? topSetores[0][1] : 1;
 
+  // Vagas em aberto (quadro ideal vs ativos)
+  const totalIdeal = Object.values(quadroIdeal).reduce((a,b)=>a+b,0);
+  const totalAtivos = FUNCIONARIOS.filter(f=>f.status==='Ativo').length;
+  const vagasTotais = Math.max(0, totalIdeal - totalAtivos);
+
   return `
   <div class="page-header"><h2>Dashboard Geral</h2><p>Visão consolidada — CD 107</p></div>
   <div class="stats-grid">
@@ -1142,6 +1147,11 @@ function renderDashboard() {
       <div class="stat-sub">índice do período</div>
     </div>
     <div class="stat-card"><div class="stat-label">Movimentações</div><div class="stat-value" style="color:${pending>0?'#f59e0b':'#94a3b8'}">${pending}</div><div class="stat-sub">pendentes</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="showPage('quadro')">
+      <div class="stat-label">Vagas em Aberto</div>
+      <div class="stat-value" style="color:${vagasTotais>0?'#ef4444':'#10b981'}">${vagasTotais>0?vagasTotais:'—'}</div>
+      <div class="stat-sub">${totalIdeal>0?(vagasTotais===0?'quadro completo':'de '+totalIdeal+' planejadas'):'sem quadro definido'}</div>
+    </div>
   </div>
 
   <!-- Card Turnover detalhado -->
@@ -1232,32 +1242,98 @@ function toggleSetorDash(setor, e) {
 //  COLABORADORES
 // ═══════════════════════════════════════════════
 function renderColaboradores() {
+  const setores  = [...new Set(FUNCIONARIOS.map(f=>f.setor))].sort();
+  const cargos   = [...new Set(FUNCIONARIOS.map(f=>f.cargo).filter(Boolean))].sort();
+  const status   = [...new Set(FUNCIONARIOS.map(f=>f.status).filter(Boolean))].sort();
   return `
   <div class="page-header"><h2>Colaboradores</h2><p>${FUNCIONARIOS.length} registros</p></div>
-  <div class="search-bar">
-    <input type="text" id="colab-search" placeholder="Buscar nome ou matrícula…" oninput="filterColabs()">
-    <select id="colab-setor" onchange="filterColabs()">
-      <option value="">Todos os setores</option>
-      ${[...new Set(FUNCIONARIOS.map(f=>f.setor))].sort().map(s=>`<option value="${s}">${nomeSetor(s)}</option>`).join('')}
-    </select>
-    <select id="colab-status" onchange="filterColabs()">
-      <option value="">Todos os status</option>
-      ${[...new Set(FUNCIONARIOS.map(f=>f.status))].sort().map(s=>`<option value="${s}">${s}</option>`).join('')}
-    </select>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end">
+    <div style="flex:1;min-width:180px">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Buscar</div>
+      <input type="text" id="colab-search" placeholder="Nome ou matrícula…" oninput="filterColabs()"
+        style="width:100%;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Setor</div>
+      <select id="colab-setor" onchange="filterColabs()"
+        style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+        <option value="">Todos</option>
+        ${setores.map(s=>`<option value="${s}">${nomeSetor(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Cargo</div>
+      <select id="colab-cargo" onchange="filterColabs()"
+        style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none;max-width:200px">
+        <option value="">Todos</option>
+        ${cargos.map(c=>`<option value="${c}">${c}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Turno</div>
+      <select id="colab-turno" onchange="filterColabs()"
+        style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+        <option value="">Todos</option>
+        <option value="1">Turno 1</option>
+        <option value="2">Turno 2</option>
+        <option value="3">Turno 3</option>
+        <option value="4">Turno 4</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Status</div>
+      <select id="colab-status" onchange="filterColabs()"
+        style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;outline:none">
+        <option value="">Todos</option>
+        ${status.map(s=>`<option value="${s}">${s}</option>`).join('')}
+      </select>
+    </div>
+    <button onclick="limparFiltrosColab()" id="btn-limpar-colab" style="display:none;padding:8px 14px;border:1px solid rgba(239,68,68,.3);border-radius:8px;background:rgba(239,68,68,.08);color:#fca5a5;font-family:inherit;font-size:12px;cursor:pointer">✕ Limpar</button>
   </div>
+  <div id="colab-resumo" style="font-size:12px;color:var(--text3);margin-bottom:8px"></div>
   <div id="colab-table-wrap"></div>
   <div id="colab-pagination"></div>`;
 }
 
-function filterColabs() { colabPage=1; renderColabTable(); }
+function limparFiltrosColab() {
+  ['colab-search','colab-setor','colab-cargo','colab-turno','colab-status'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  filterColabs();
+}
+
+function filterColabs() {
+  colabPage=1;
+  renderColabTable();
+  // Mostrar/ocultar botão limpar
+  const temFiltro = ['colab-search','colab-setor','colab-cargo','colab-turno','colab-status']
+    .some(id => document.getElementById(id)?.value);
+  const btn = document.getElementById('btn-limpar-colab');
+  if (btn) btn.style.display = temFiltro ? 'block' : 'none';
+}
 
 function renderColabTable() {
-  const q=(document.getElementById('colab-search')?.value||'').toLowerCase();
-  const setor=document.getElementById('colab-setor')?.value||'';
-  const status=document.getElementById('colab-status')?.value||'';
-  let list=FUNCIONARIOS.filter(f=>
-    (!q||f.nome.toLowerCase().includes(q)||f.matricula.includes(q))&&
-    (!setor||f.setor===setor)&&(!status||f.status===status));
+  const q     = (document.getElementById('colab-search')?.value||'').toLowerCase();
+  const setor = document.getElementById('colab-setor')?.value||'';
+  const cargo = document.getElementById('colab-cargo')?.value||'';
+  const turno = document.getElementById('colab-turno')?.value||'';
+  const status= document.getElementById('colab-status')?.value||'';
+  let list = FUNCIONARIOS.filter(f=>
+    (!q     || f.nome.toLowerCase().includes(q) || f.matricula.includes(q)) &&
+    (!setor || f.setor  === setor) &&
+    (!cargo || f.cargo  === cargo) &&
+    (!turno || f.turno  === turno) &&
+    (!status|| f.status === status));
+
+  // Atualizar resumo
+  const resumo = document.getElementById('colab-resumo');
+  if (resumo) {
+    const total = FUNCIONARIOS.length;
+    const filtrado = list.length;
+    resumo.textContent = filtrado === total
+      ? `${total} colaboradores`
+      : `${filtrado} de ${total} colaboradores filtrados`;
+  }
   const total=list.length, pages=Math.ceil(total/pageSize);
   const slice=list.slice((colabPage-1)*pageSize,colabPage*pageSize);
   const canEdit=['admin','rh'].includes(currentUser.role);
@@ -1826,26 +1902,73 @@ function abrirVincular(matLider){
 
 function filtrarDisponiveis(matLider){
   const q=(document.getElementById('vinc-search')?.value||'').toLowerCase();
-  // Todos sem vínculo (incluindo líderes e coordenadores que podem ser vinculados a gerentes)
-  const disponiveis=getFuncionariosSemVinculo().filter(f=>f.matricula!==matLider&&(!q||f.nome.toLowerCase().includes(q)||f.matricula.includes(q)));
-  const jaVinc=getEquipe(matLider).filter(f=>!q||f.nome.toLowerCase().includes(q));
+  // Todos os colaboradores ativos exceto o próprio gestor
+  const todos = FUNCIONARIOS.filter(f=>
+    ['Ativo','Experiência'].includes(f.status) &&
+    f.matricula !== matLider &&
+    (!q || f.nome.toLowerCase().includes(q) || f.cargo.toLowerCase().includes(q) || f.matricula.includes(q))
+  ).sort((a,b)=>{
+    // Ordenar: líderes e acima primeiro, depois operacionais
+    const peso=c=>c.includes('Gerente')?0:c.includes('Coordenador')?1:c.includes('Lider')||c.includes('Supervisor')?2:3;
+    const d=peso(a.cargo)-peso(b.cargo); return d!==0?d:a.nome.localeCompare(b.nome);
+  });
+
+  // Separar: já na equipe deste gestor / vinculados a outro / sem vínculo
+  const jaVinc    = todos.filter(f=>vinculacoes[f.matricula]===matLider);
+  const outroGest = todos.filter(f=>vinculacoes[f.matricula]&&vinculacoes[f.matricula]!==matLider);
+  const semVinc   = todos.filter(f=>!vinculacoes[f.matricula]);
+
   const lista=document.getElementById('vinc-lista'); if(!lista) return;
   let html='';
+
   if(jaVinc.length>0){
-    html+=`<div style="padding:8px 12px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;background:var(--surface2)">Na equipe (${jaVinc.length})</div>`;
-    html+=jaVinc.map(f=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border)">
-      <div><div style="font-size:13px;font-weight:500">${f.nome}</div><div style="font-size:11px;color:var(--text3)">${f.cargo}</div></div>
-      <button onclick="desvincularRerender('${f.matricula}','${matLider}')" style="padding:3px 10px;border:1px solid rgba(239,68,68,.3);border-radius:6px;background:rgba(239,68,68,.1);color:#fca5a5;font-family:inherit;font-size:11px;cursor:pointer">Remover</button>
-    </div>`).join('');
+    html+=`<div style="padding:8px 12px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;background:var(--surface2)">✅ Na equipe (${jaVinc.length})</div>`;
+    html+=jaVinc.map(f=>{
+      const cc=cargoColor(f.cargo);
+      return`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border);background:rgba(16,185,129,.04)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px">${cc.icon}</span>
+          <div><div style="font-size:13px;font-weight:600">${f.nome}</div><div style="font-size:11px;color:var(--text3)">${f.cargo}</div></div>
+        </div>
+        <button onclick="desvincularRerender('${f.matricula}','${matLider}')" style="padding:3px 10px;border:1px solid rgba(239,68,68,.3);border-radius:6px;background:rgba(239,68,68,.1);color:#fca5a5;font-family:inherit;font-size:11px;cursor:pointer">Remover</button>
+      </div>`;
+    }).join('');
   }
-  if(disponiveis.length>0){
-    html+=`<div style="padding:8px 12px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;background:var(--surface2)">Disponíveis (${disponiveis.length})</div>`;
-    html+=disponiveis.map(f=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border)">
-      <div><div style="font-size:13px;font-weight:500">${f.nome}</div><div style="font-size:11px;color:var(--text3)">${f.cargo} · ${nomeSetor(f.setor)}</div></div>
-      <button onclick="vincular('${f.matricula}','${matLider}')" style="padding:3px 10px;border:1px solid var(--accent);border-radius:6px;background:rgba(59,130,246,.1);color:var(--accent);font-family:inherit;font-size:11px;cursor:pointer;font-weight:600">+ Adicionar</button>
-    </div>`).join('');
+
+  if(semVinc.length>0){
+    html+=`<div style="padding:8px 12px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;background:var(--surface2)">➕ Sem vínculo (${semVinc.length})</div>`;
+    html+=semVinc.map(f=>{
+      const cc=cargoColor(f.cargo);
+      return`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px">${cc.icon}</span>
+          <div><div style="font-size:13px;font-weight:500">${f.nome}</div><div style="font-size:11px;color:var(--text3)">${f.cargo} · ${nomeSetor(f.setor)}</div></div>
+        </div>
+        <button onclick="vincular('${f.matricula}','${matLider}')" style="padding:3px 10px;border:1px solid var(--accent);border-radius:6px;background:rgba(59,130,246,.1);color:var(--accent);font-family:inherit;font-size:11px;cursor:pointer;font-weight:600">+ Adicionar</button>
+      </div>`;
+    }).join('');
   }
-  if(!html) html=`<div style="padding:20px;text-align:center;color:var(--text3)">Nenhum disponível.</div>`;
+
+  if(outroGest.length>0){
+    html+=`<div style="padding:8px 12px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;background:var(--surface2)">🔄 Vinculados a outro gestor (${outroGest.length})</div>`;
+    html+=outroGest.map(f=>{
+      const cc=cargoColor(f.cargo);
+      const gestorAtual=FUNCIONARIOS.find(x=>x.matricula===vinculacoes[f.matricula]);
+      return`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border);background:rgba(245,158,11,.04)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px">${cc.icon}</span>
+          <div>
+            <div style="font-size:13px;font-weight:500">${f.nome}</div>
+            <div style="font-size:11px;color:var(--text3)">${f.cargo}</div>
+            <div style="font-size:10px;color:#f59e0b">→ ${gestorAtual?gestorAtual.nome:'outro gestor'}</div>
+          </div>
+        </div>
+        <button onclick="vincular('${f.matricula}','${matLider}')" style="padding:3px 10px;border:1px solid #f59e0b;border-radius:6px;background:rgba(245,158,11,.1);color:#fcd34d;font-family:inherit;font-size:11px;cursor:pointer;font-weight:600">Mover aqui</button>
+      </div>`;
+    }).join('');
+  }
+
+  if(!html) html=`<div style="padding:20px;text-align:center;color:var(--text3)">Nenhum colaborador encontrado.</div>`;
   lista.innerHTML=html;
 }
 
@@ -3266,8 +3389,7 @@ function salvarIdeal(setor) {
   const val = parseInt(document.getElementById('qi-valor')?.value||'0');
   registrarLog('Quadro Ideal', `${nomeSetor(setor)}: ${val} vagas definidas`);
   quadroIdeal[setor] = val;
-  // Salvar
-  fbSetDoc('configuracoes','quadroIdeal',quadroIdeal).catch(err=>console.error(err));
+  salvarQuadroIdeal();
   closeModal();
   document.getElementById('main-content').innerHTML = renderQuadro();
 }
