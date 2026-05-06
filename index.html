@@ -1351,6 +1351,34 @@ function salvarEdicao(mat) {
   if(!nome){errEl.textContent='Nome obrigatório.';errEl.style.display='block';return;}
   f.nome=nome; f.cargo=cargo; f.setor=setor; f.turno=turno; f.status=status;
   registrarLog('Editar Colaborador', `${nome} (${mat}) — cargo: ${cargo}, setor: ${nomeSetor(setor)}, turno: ${turno}, status: ${status}`);
+
+  // Criar acesso automático se cargo virou liderança e usuário não existe
+  const ehLideranca = cargo.includes('Gerente') || cargo.includes('Coordenador') ||
+                      cargo.includes('Lider') || cargo.includes('Supervisor');
+  if (ehLideranca && !USERS[mat]) {
+    const roleNovo = cargo.includes('Gerente') ? 'gerente' :
+                     cargo.includes('Coordenador') ? 'coordenador' : 'lider';
+    USERS[mat] = { senha: mat, role: roleNovo, nome, primeiroAcesso: true, podeGerenciarUsuarios: false };
+    salvarUsuarios();
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;top:20px;right:20px;background:#8b5cf6;color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+    t.textContent = `🔐 Acesso criado para ${nome} como ${ROLE_LABELS[roleNovo]}. Senha inicial: matrícula.`;
+    document.body.appendChild(t); setTimeout(()=>t.remove(), 5000);
+    registrarLog('Acesso Criado', `${nome} (${mat}) — perfil ${ROLE_LABELS[roleNovo]} criado automaticamente`);
+  }
+
+  // Atualizar role se usuário já existe e cargo mudou de nível
+  if (USERS[mat] && ehLideranca) {
+    const roleNovo = cargo.includes('Gerente') ? 'gerente' :
+                     cargo.includes('Coordenador') ? 'coordenador' : 'lider';
+    if (USERS[mat].role !== roleNovo && USERS[mat].role !== 'admin' && USERS[mat].role !== 'rh') {
+      USERS[mat].role = roleNovo;
+      USERS[mat].nome = nome;
+      salvarUsuarios();
+      registrarLog('Perfil Atualizado', `${nome} (${mat}) — role atualizado para ${ROLE_LABELS[roleNovo]}`);
+    }
+  }
+
   salvarColaboradores();
   closeModal();
   if(currentPage==='colaboradores') renderColabTable();
